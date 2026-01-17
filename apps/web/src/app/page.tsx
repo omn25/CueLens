@@ -1,3 +1,7 @@
+// Example: Using shared contract types in the web app
+// Types from @cuelens/shared are available for use throughout the app
+// import type { Person } from "@cuelens/shared";
+
 export default function Home() {
   return (
     <main

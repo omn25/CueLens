@@ -29,9 +29,10 @@ This is a **pnpm workspaces + Turborepo monorepo** with the following structure:
 
 ### `/packages`
 
-- **`shared`** - Shared TypeScript types and Zod schemas
-  - Used by both `web` and `api` to maintain type safety across the stack
-  - Placeholder types and schemas are exported; will expand as features are added
+- **`shared`** - Shared TypeScript types and Zod schemas (data contracts)
+  - Contains data contracts in `src/contracts/` that define the shape of data exchanged between `web` and `api`
+  - Both frontend and backend must use these contracts to prevent type drift
+  - Contracts include `Person`, `Place`, `VisionEvent`, and `Suggestion` with Zod schemas for runtime validation
 
 - **`eslint-config`** - Shared ESLint configuration
   - Enforces consistent code style across all packages and apps
@@ -178,7 +179,7 @@ If ports 3000 or 3001 are already in use:
 - ✅ GitHub Actions CI pipeline
 - ✅ Base Next.js app (placeholder page)
 - ✅ Base Express API (`GET /health` endpoint)
-- ✅ Shared types package (placeholder exports)
+- ✅ Shared types package with data contracts (Person, Place, VisionEvent, Suggestion)
 - ⏳ **No features implemented** — ready for feature development
 
 ## License

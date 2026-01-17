@@ -134,54 +134,60 @@ apps/api/src/
 ### Shared Package (`packages/shared`)
 
 **Purpose:**
-- Single source of truth for types and schemas
+- Single source of truth for types and schemas (data contracts)
 - Ensures type safety across the entire stack
 - Runtime validation via Zod schemas
+- **Prevents type drift** between frontend and backend
 
-**Type Categories (Future):**
+**Data Contracts (`src/contracts/`):**
 
-1. **Domain Models**
-   - `Person`, `Place`, `Relationship`
-   - Memory graph nodes and edges
-   - User and session types
+Contracts are shared definitions of data structures used by both `apps/web` and `apps/api`. Each contract consists of:
+- **Zod schema** for runtime validation
+- **TypeScript type** inferred from the schema
 
-2. **API Contracts**
-   - Request/response types
-   - WebSocket message types
-   - Error response types
+**Current Contracts:**
 
-3. **Integration Types**
-   - Overshoot SDK response types
-   - STT/TTS service types
-   - External API types
+1. **Person** (`person.ts`)
+   - Represents a person in the memory aid system
+   - Fields: id, displayName, relationship (optional), notes, photoAssetId, embeddingId, timestamps
 
-4. **Validation Schemas**
-   - Zod schemas matching TypeScript types
-   - API request validation
-   - Environment variable validation
+2. **Place** (`place.ts`)
+   - Represents a place in the memory aid system
+   - Fields: id, displayName, notes, photoAssetId, embeddingId, timestamps
 
-**Usage Patterns:**
+3. **VisionEvent** (`visionEvent.ts`)
+   - Events detected from camera/vision analysis
+   - Fields: id, type (person_candidate | place_candidate | scene_hint), timestamp, confidence, labels, evidence, source
+
+4. **Suggestion** (`suggestion.ts`)
+   - Memory suggestions that can be approved/rejected by caregivers
+   - Fields: id, status, type, timestamps, text, related entities, proposed data, evidence
+
+**Usage Pattern:**
 
 ```typescript
-// In apps/api (server-side validation)
-import { PersonSchema } from '@cuelens/shared';
+// Import types
+import type { Person } from "@cuelens/shared";
 
-const result = PersonSchema.safeParse(req.body);
-if (!result.success) {
-  return res.status(400).json({ error: result.error });
+// Import schemas for validation
+import { PersonSchema } from "@cuelens/shared";
+
+// Validate at API boundaries
+const result = PersonSchema.safeParse(incomingData);
+if (result.success) {
+  const person: Person = result.data; // Typed and validated
 }
-
-// In apps/web (type safety)
-import type { Person } from '@cuelens/shared';
-
-const person: Person = await fetch('/api/persons/123').then(r => r.json());
 ```
 
+**Important:** Both `apps/web` and `apps/api` must use these contracts. Never define types separately in each app - always use the shared contracts to prevent type drift.
+
 **Benefits:**
-- Type safety: TypeScript catches errors at compile time
-- Runtime validation: Zod validates data at runtime
-- Single source of truth: Changes propagate automatically
-- No type drift: Frontend and backend stay in sync
+- **Type safety**: TypeScript catches errors at compile time
+- **Runtime validation**: Zod validates data at runtime (via `.parse()` or `.safeParse()`)
+- **Single source of truth**: Changes propagate automatically across both apps
+- **No type drift**: Frontend and backend always use the exact same types
+
+See `packages/shared/src/contracts/README.md` for detailed usage examples and best practices.
 
 ## Data Flow (Future)
 

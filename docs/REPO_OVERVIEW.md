@@ -79,17 +79,22 @@ cuelens/
 
 #### `packages/shared`
 
-**Purpose:** Shared TypeScript types and Zod schemas used across both `web` and `api`
+**Purpose:** Shared TypeScript types and Zod schemas (data contracts) used across both `web` and `api`
 
 **Current State:**
-- Placeholder types: `Person`, `Place`, `Relationship`
-- Placeholder Zod schemas: `PersonSchema`, `PlaceSchema`, `RelationshipSchema`
-- Basic type exports
+- Data contracts in `src/contracts/`: `Person`, `Place`, `VisionEvent`, `Suggestion`
+- Each contract includes Zod schema + TypeScript type (inferred from schema)
+- Contracts define the shape of data exchanged between frontend and backend
+
+**Contract Structure:**
+- `person.ts` - Person data contract
+- `place.ts` - Place data contract
+- `visionEvent.ts` - Vision analysis events
+- `suggestion.ts` - Memory suggestions for caregiver approval
 
 **Future Responsibilities:**
-- Memory graph data types
-- API request/response types
-- Validation schemas for all API endpoints
+- Additional contracts as features are added
+- API request/response types (all must use contracts)
 - Shared constants and enums
 - Utility functions shared between web and api
 
