@@ -3,33 +3,116 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import RoomScanning from '@/app/components/RoomScanning';
-import type { RoomData } from '@/lib/roomStorage';
+import RoomScanCapture from '@/app/components/RoomScanCapture';
+import RoomScanReview from '@/app/components/RoomScanReview';
+import VideoUploadProcessor from '@/app/components/VideoUploadProcessor';
+import { useRoomProfiles } from '@/hooks/useRoomProfiles';
+import type { RoomObservation } from '@/types/room';
+
+type ScanState = 'idle' | 'upload' | 'scanning' | 'review' | 'complete';
 
 export default function CapturePage() {
   const router = useRouter();
-  const [roomName, setRoomName] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanComplete, setScanComplete] = useState(false);
-  const [savedRoom, setSavedRoom] = useState<RoomData | null>(null);
+  const { addProfile } = useRoomProfiles();
+  const [scanState, setScanState] = useState<ScanState>('idle'); // Start with choice
+  const [mode, setMode] = useState<'upload' | 'live'>('upload'); // Default to upload
+  const [observations, setObservations] = useState<RoomObservation[]>([]);
+  const [aggregated, setAggregated] = useState<RoomObservation | null>(null);
+  const [savedRoomName, setSavedRoomName] = useState<string>('');
 
-  const handleStartScan = () => {
-    if (!roomName.trim()) {
-      alert('Please enter a room name');
+  const handleScanComplete = (obs: RoomObservation[], agg: RoomObservation) => {
+    setObservations(obs);
+    setAggregated(agg);
+    setScanState('review');
+  };
+
+  const handleScanCancel = () => {
+    setScanState('idle');
+    setObservations([]);
+    setAggregated(null);
+    setMode('upload');
+  };
+
+  const handleVideoUploadComplete = (obs: RoomObservation[], agg: RoomObservation) => {
+    console.log('[CapturePage] ========== handleVideoUploadComplete called ==========');
+    console.log('[CapturePage] Observations count:', obs.length);
+    console.log('[CapturePage] Aggregated room type:', agg?.room_type);
+    console.log('[CapturePage] Aggregated object:', agg);
+    
+    // Validate that we have the required data
+    if (!obs || obs.length === 0) {
+      console.error('[CapturePage] ❌ No observations provided!');
+      alert('Error: No observations data received. Please try again.');
       return;
     }
-    setIsScanning(true);
+    
+    if (!agg) {
+      console.error('[CapturePage] ❌ No aggregated data provided!');
+      alert('Error: No aggregated data received. Please try again.');
+      return;
+    }
+    
+    try {
+      // React batches these state updates, so they'll all apply together
+      // Set aggregated FIRST to ensure it's available when scanState changes
+      console.log('[CapturePage] Setting all state updates...');
+      setAggregated(agg);
+      setObservations(obs);
+      
+      // Use functional update to ensure we're setting state based on current values
+      // But actually, we can just set it directly since we're passing the values
+      setScanState('review');
+      
+      console.log('[CapturePage] ✅ All state updated - React will re-render with review page');
+      console.log('[CapturePage] Current scanState will be: "review"');
+      console.log('[CapturePage] Current aggregated will be:', agg);
+    } catch (error) {
+      console.error('[CapturePage] ❌ Error in handleVideoUploadComplete:', error);
+      alert(`Failed to navigate to review page: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
-  const handleScanComplete = (roomData: RoomData) => {
-    setSavedRoom(roomData);
-    setScanComplete(true);
-    setIsScanning(false);
+  const handleVideoUploadCancel = () => {
+    setScanState('idle');
+    setMode('upload');
   };
 
-  const handleCancel = () => {
-    setIsScanning(false);
-    setRoomName('');
+  const handleChooseUpload = () => {
+    setMode('upload');
+    setScanState('upload');
+  };
+
+  const handleChooseLive = () => {
+    setMode('live');
+    setScanState('scanning');
+  };
+
+  const handleSave = (name: string, note: string) => {
+    try {
+      if (observations.length === 0) {
+        alert('No observation data to save. Please try scanning again.');
+        return;
+      }
+      
+      console.log('[CapturePage] Saving profile:', { name, note, observationCount: observations.length });
+      const savedProfile = addProfile(name, note, observations);
+      console.log('[CapturePage] Profile saved:', savedProfile);
+      
+      setSavedRoomName(name);
+      setScanState('complete');
+      // Don't clear observations yet - keep them for the success message
+      // setObservations([]);
+      // setAggregated(null);
+    } catch (error) {
+      console.error('[CapturePage] Failed to save profile:', error);
+      alert(`Failed to save room profile: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleReviewCancel = () => {
+    setScanState('idle');
+    setObservations([]);
+    setAggregated(null);
   };
 
   const handleContinue = () => {
@@ -72,13 +155,68 @@ export default function CapturePage() {
       <main className="flex flex-1 overflow-hidden relative">
         {/* Left: Camera Feed & Overlay */}
         <div className="flex-1 relative bg-black flex flex-col items-center justify-center overflow-hidden">
-          {isScanning ? (
-            <RoomScanning
-              roomName={roomName}
-              onComplete={handleScanComplete}
-              onCancel={handleCancel}
+          {scanState === 'idle' ? (
+            /* Mode Selection */
+            <div className="max-w-2xl w-full mx-4 space-y-6 p-8">
+              <div className="text-center mb-8">
+                <h2 className="text-3xl font-bold text-white mb-2">Choose Capture Method</h2>
+                <p className="text-white/70">Select how you want to capture this room</p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Video Upload Option */}
+                <button
+                  onClick={handleChooseUpload}
+                  className="group bg-white dark:bg-sidebar-surface rounded-xl p-8 border-2 border-slate-200 dark:border-slate-700 hover:border-primary transition-all text-left flex flex-col items-center gap-4"
+                >
+                  <div className="size-20 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                    <span className="material-symbols-outlined text-primary text-4xl">videocam</span>
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                      Upload Video
+                    </h3>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">
+                      Upload a &lt;10 second video. We&apos;ll extract 3 keyframes and analyze them sequentially.
+                    </p>
+                  </div>
+                  <span className="text-xs text-primary font-semibold mt-auto">Recommended</span>
+                </button>
+
+                {/* Live Scan Option */}
+                <button
+                  onClick={handleChooseLive}
+                  className="group bg-white dark:bg-sidebar-surface rounded-xl p-8 border-2 border-slate-200 dark:border-slate-700 hover:border-primary transition-all text-left flex flex-col items-center gap-4"
+                >
+                  <div className="size-20 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                    <span className="material-symbols-outlined text-primary text-4xl">camera</span>
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                      Live Scan
+                    </h3>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">
+                      Use your webcam for a 10-second live scan with continuous analysis.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </div>
+          ) : scanState === 'upload' ? (
+            <VideoUploadProcessor
+              onComplete={handleVideoUploadComplete}
+              onCancel={handleVideoUploadCancel}
             />
-          ) : scanComplete && savedRoom ? (
+          ) : scanState === 'scanning' ? (
+            <RoomScanCapture onComplete={handleScanComplete} onCancel={handleScanCancel} />
+          ) : scanState === 'review' && aggregated ? (
+            <RoomScanReview
+              observations={observations}
+              aggregated={aggregated}
+              onSave={handleSave}
+              onCancel={handleReviewCancel}
+            />
+          ) : scanState === 'complete' ? (
             <div className="absolute inset-0 flex items-center justify-center z-20">
               <div className="bg-white dark:bg-sidebar-surface rounded-2xl p-8 max-w-md text-center shadow-2xl">
                 <div className="size-16 rounded-full bg-emerald-500 flex items-center justify-center mx-auto mb-4">
@@ -88,7 +226,7 @@ export default function CapturePage() {
                   Room Saved Successfully!
                 </h2>
                 <p className="text-slate-600 dark:text-slate-300 mb-6">
-                  {savedRoom.name} has been added to your places. CueLens will now recognize this room when you&apos;re in it.
+                  {savedRoomName} has been added to your places. CueLens will now recognize this room when you&apos;re in it.
                 </p>
                 <button
                   onClick={handleContinue}
@@ -99,72 +237,12 @@ export default function CapturePage() {
               </div>
             </div>
           ) : (
-            <>
-              {/* Placeholder Background */}
-              <div
-                className="absolute inset-0 bg-cover bg-center opacity-80"
-                style={{
-                  backgroundImage:
-                    "url('https://lh3.googleusercontent.com/aida-public/AB6AXuA-9RNj2wL1tF3CnyZxylDBDZB-wsHjlWs4MoJDNSi2yac0-x_D8_pV9ch2fZyEs3dtdlQu6XoIZhU_0kGsSg4L6JVhClCuniGCktzWe8lKdGXJSyy-xaC85nlE128FOUWz2d1161pWM2rMIWERJDT7RkBz_mscnIteqVoGSuid3Yugetk7tTvUq72-KVZP_noIZHuxWPV0nnSdYg912ghfBvL4AKBULTPGb0JJoZ6jtRR7UOqyVawQFKgr-0Fl0nSXz9YnOjuC7p9P')",
-                  filter: 'blur(2px) brightness(0.7)',
-                }}
-              ></div>
-
-              {/* AR Scanning Overlay Layer */}
-              <div className="absolute inset-0 z-10 pointer-events-none">
-                {/* Scanning Grid Lines (Subtle) */}
-                <div
-                  className="absolute inset-0 opacity-10"
-                  style={{
-                    backgroundImage:
-                      'linear-gradient(rgba(73, 120, 156, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(73, 120, 156, 0.5) 1px, transparent 1px)',
-                    backgroundSize: '80px 80px',
-                  }}
-                ></div>
-
-                {/* Central Reticle */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
-                  {/* Outer pulsing ring */}
-                  <div className="absolute size-64 rounded-full border border-primary/30 animate-scan"></div>
-                  {/* Inner solid ring */}
-                  <div className="relative size-56 rounded-full border-2 border-primary/80 shadow-[0_0_15px_rgba(73,120,156,0.5)] flex items-center justify-center">
-                    {/* Corner brackets for tech feel */}
-                    <div className="absolute top-0 left-0 -mt-1 -ml-1 size-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div>
-                    <div className="absolute top-0 right-0 -mt-1 -mr-1 size-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div>
-                    <div className="absolute bottom-0 left-0 -mb-1 -ml-1 size-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div>
-                    <div className="absolute bottom-0 right-0 -mb-1 -mr-1 size-6 border-b-4 border-r-4 border-white rounded-br-lg"></div>
-                    {/* Center Crosshair */}
-                    <div className="size-2 bg-white rounded-full"></div>
-                  </div>
-                </div>
-
-                {/* Guidance HUD Pill */}
-                <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-3 px-6 py-3 bg-black/40 backdrop-blur-md border border-white/10 rounded-full shadow-2xl">
-                  <div className="size-8 rounded-full bg-white/10 flex items-center justify-center animate-pulse">
-                    <span className="material-symbols-outlined text-white">pan_tool</span>
-                  </div>
-                  <span className="text-white text-lg font-semibold tracking-wide">
-                    Ready to scan - Enter room name to begin
-                  </span>
-                </div>
-              </div>
-
-              {/* Camera Controls (Bottom Left) */}
-              <div className="absolute bottom-6 left-6 z-20 flex gap-3">
-                <button
-                  aria-label="Switch Camera"
-                  className="bg-black/50 hover:bg-black/70 backdrop-blur-md text-white p-3 rounded-full transition-all border border-white/10"
-                >
-                  <span className="material-symbols-outlined">cameraswitch</span>
-                </button>
-                <button
-                  aria-label="Toggle Flash"
-                  className="bg-black/50 hover:bg-black/70 backdrop-blur-md text-white p-3 rounded-full transition-all border border-white/10"
-                >
-                  <span className="material-symbols-outlined">flash_on</span>
-                </button>
-              </div>
-            </>
+            <RoomScanCapture 
+              onComplete={handleScanComplete} 
+              onCancel={handleScanCancel}
+              showStartButton={false}
+              autoStart={true}
+            />
           )}
         </div>
 
@@ -190,110 +268,70 @@ export default function CapturePage() {
               </p>
             </div>
 
-            {/* Room Name Input */}
-            {!isScanning && !scanComplete && (
+            {/* Instructions */}
+            {scanState === 'idle' && (
               <div className="mb-8">
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">
-                  Room Name
-                </label>
-                <input
-                  type="text"
-                  value={roomName}
-                  onChange={(e) => setRoomName(e.target.value)}
-                  placeholder="e.g., Bedroom, Kitchen, Living Room"
-                  className="w-full bg-white dark:bg-card-dark border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 rounded-lg py-3 px-4 focus:ring-2 focus:ring-primary focus:border-transparent outline-none shadow-sm transition-all"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && roomName.trim()) {
-                      handleStartScan();
-                    }
-                  }}
-                />
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                  Enter a name for this room, then click Start Scan
-                </p>
+                <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg mb-4">
+                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                    <strong className="text-primary">Instructions:</strong> Click &quot;Start Scan&quot; below to begin a 10-second room scan. Slowly pan your laptop left and right to capture all room features.
+                  </p>
+                </div>
               </div>
             )}
 
             {/* Checklist */}
-            {!scanComplete && (
+            {scanState !== 'complete' && (
               <div className="flex flex-col gap-3 mb-auto">
-                {/* Item 1: Room Name */}
-                <div
-                  className={`flex items-center justify-between p-4 rounded-xl transition-all ${
-                    roomName.trim()
-                      ? 'bg-primary/10 border border-primary/20'
-                      : 'bg-transparent border border-slate-200 dark:border-slate-700 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div
-                      className={`size-8 rounded-full flex items-center justify-center shrink-0 ${
-                        roomName.trim() ? 'bg-primary text-white' : 'border-2 border-slate-300 dark:border-slate-500'
-                      }`}
-                    >
-                      {roomName.trim() ? (
-                        <span className="material-symbols-outlined text-[20px]">check</span>
-                      ) : null}
-                    </div>
-                    <span className="text-slate-900 dark:text-white font-semibold">Room Name</span>
-                  </div>
-                  {roomName.trim() ? (
-                    <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded uppercase tracking-wider">
-                      Ready
-                    </span>
-                  ) : (
-                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                      Pending
-                    </span>
-                  )}
-                </div>
-
-                {/* Item 2: Scanning */}
+                {/* Item 1: Scanning */}
                 <div
                   className={`relative overflow-hidden flex items-center justify-between p-4 rounded-xl transition-all ${
-                    isScanning
+                    scanState === 'scanning'
                       ? 'bg-slate-100 dark:bg-slate-700/50 border border-primary/50 shadow-lg ring-1 ring-primary/30'
+                      : scanState === 'review'
+                      ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-500/50'
                       : 'bg-transparent border border-slate-200 dark:border-slate-700 opacity-60'
                   }`}
                 >
-                  {isScanning && (
+                  {scanState === 'scanning' && (
                     <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary"></div>
                   )}
+                  {scanState === 'review' && (
+                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-500"></div>
+                  )}
                   <div className="flex items-center gap-4 z-10">
-                    {isScanning ? (
+                    {scanState === 'scanning' ? (
                       <div className="size-8 rounded-full border-2 border-primary border-t-transparent animate-spin flex items-center justify-center shrink-0"></div>
+                    ) : scanState === 'review' ? (
+                      <div className="size-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                        <span className="material-symbols-outlined text-[20px]">check</span>
+                      </div>
                     ) : (
                       <div className="size-8 rounded-full border-2 border-slate-300 dark:border-slate-500 flex items-center justify-center shrink-0"></div>
                     )}
                     <div className="flex flex-col">
                       <span className="text-slate-900 dark:text-white font-semibold">Room Scan</span>
-                      {isScanning ? (
+                      {scanState === 'scanning' ? (
                         <span className="text-xs text-slate-500 dark:text-slate-400">Capturing features...</span>
+                      ) : scanState === 'review' ? (
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400">Review & save</span>
                       ) : (
                         <span className="text-xs text-slate-500 dark:text-slate-400">10-second scan</span>
                       )}
                     </div>
                   </div>
-                  {isScanning ? (
+                  {scanState === 'scanning' ? (
                     <span className="text-xs font-bold text-slate-500 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 px-2 py-1 rounded uppercase tracking-wider z-10 animate-pulse">
                       Scanning
+                    </span>
+                  ) : scanState === 'review' ? (
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-1 rounded uppercase tracking-wider z-10">
+                      Review
                     </span>
                   ) : (
                     <span className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                       Pending
                     </span>
                   )}
-                </div>
-
-                {/* Item 3: Processing */}
-                <div className="flex items-center justify-between p-4 bg-transparent border border-slate-200 dark:border-slate-700 rounded-xl opacity-60">
-                  <div className="flex items-center gap-4">
-                    <div className="size-8 rounded-full border-2 border-slate-300 dark:border-slate-500 flex items-center justify-center shrink-0"></div>
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Processing</span>
-                  </div>
-                  <span className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    Pending
-                  </span>
                 </div>
               </div>
             )}
@@ -306,15 +344,24 @@ export default function CapturePage() {
               >
                 Cancel Setup
               </Link>
-              {!isScanning && !scanComplete && (
+              {scanState === 'idle' && (
                 <button
-                  onClick={handleStartScan}
-                  disabled={!roomName.trim()}
-                  className="px-8 py-3 rounded-lg bg-primary hover:bg-primary/90 disabled:bg-slate-200 disabled:dark:bg-slate-700 disabled:text-slate-400 disabled:dark:text-slate-500 text-white font-semibold transition-all flex items-center gap-2 disabled:cursor-not-allowed"
+                  onClick={() => setScanState('scanning')}
+                  className="px-8 py-3 rounded-lg bg-primary hover:bg-primary/90 text-white font-semibold transition-all flex items-center gap-2"
                 >
                   Start Scan
                   <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                 </button>
+              )}
+              {scanState === 'review' && (
+                <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
+                  Review the scan on the left, then save your room
+                </p>
+              )}
+              {scanState === 'complete' && (
+                <p className="text-sm text-emerald-600 dark:text-emerald-400 text-center">
+                  Room saved successfully!
+                </p>
               )}
             </div>
           </div>
