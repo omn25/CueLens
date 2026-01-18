@@ -21,6 +21,18 @@ export default function Home() {
       </p>
       <nav style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
         <a
+          href="/caregiver"
+          style={{
+            padding: "0.5rem 1rem",
+            border: "1px solid #333",
+            borderRadius: "4px",
+            backgroundColor: "#0070f3",
+            color: "white",
+          }}
+        >
+          Caregiver Dashboard
+        </a>
+        <a
           href="/docs/REPO_OVERVIEW.md"
           style={{
             padding: "0.5rem 1rem",

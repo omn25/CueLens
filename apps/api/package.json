@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@cuelens/shared": "workspace:*",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@cuelens/eslint-config": "workspace:*",

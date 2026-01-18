@@ -28,3 +28,16 @@ export const SuggestionSchema = z.object({
 });
 
 export type Suggestion = z.infer<typeof SuggestionSchema>;
+
+/**
+ * Suggestion create input schema
+ * Used for creating new suggestions (omits id, status, timestamps)
+ */
+export const SuggestionCreateSchema = SuggestionSchema.omit({
+  id: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SuggestionCreateInput = z.infer<typeof SuggestionCreateSchema>;
