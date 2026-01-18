@@ -7,7 +7,7 @@ import { ROOM_OBSERVATION_PROMPT, ROOM_OBSERVATION_OUTPUT_SCHEMA } from '@/lib/r
 import { pickBestMatch } from '@/lib/roomMatching';
 import type { RoomObservation } from '@/types/room';
 import DetectedRoomModal from './DetectedRoomModal';
-
+//hi this is a test
 export default function WebcamFeed() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isStreaming, setIsStreaming] = useState(false);
