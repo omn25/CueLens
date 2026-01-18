@@ -54,7 +54,6 @@ export class OpenAIRealtimeClient {
   private processor: ScriptProcessorNode | null = null;
   private config: OpenAIRealtimeConfig;
   private isConnected = false;
-  private sessionId: string;
   private sessionConfigSent = false;
   private configAcked = false; // CRITICAL: Only start audio after config acknowledged
   private retryCount = 0;
@@ -64,7 +63,6 @@ export class OpenAIRealtimeClient {
 
   constructor(config: OpenAIRealtimeConfig) {
     this.config = config;
-    this.sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     // Reset retry count on new instance (decoupled from vision pipeline)
     this.retryCount = 0;
   }
@@ -98,7 +96,7 @@ export class OpenAIRealtimeClient {
         
         // CRITICAL: Enforce ordering - send config, wait for ack, THEN start audio
         console.log('📤 Sending transcription_session.update immediately...');
-        if (!this.sessionConfigSent && this.mediaStream && this.ws.readyState === WebSocket.OPEN) {
+        if (!this.sessionConfigSent && this.mediaStream && this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.sendSessionUpdate();
         // DO NOT start audio yet - wait for configAcked = true
         this.configAcked = false; // Reset ack flag
@@ -290,15 +288,15 @@ export class OpenAIRealtimeClient {
       const audioTracks = stream.getAudioTracks();
       if (audioTracks.length > 0) {
         const track = audioTracks[0];
-        const settings = track.getSettings();
-        const constraints = track.getConstraints();
-        console.log('🎤 Microphone access GRANTED');
-        console.log('   Track label:', track.label);
-        console.log('   Track enabled:', track.enabled);
-        console.log('   Track readyState:', track.readyState);
-        console.log('   Sample rate (if available):', settings.sampleRate || 'not reported');
-        console.log('   Channel count:', settings.channelCount || 'not reported');
-        console.log('   Constraints:', JSON.stringify(constraints));
+        if (track) {
+          const settings = track.getSettings();
+          console.log('🎤 Microphone access GRANTED');
+          console.log('   Track label:', track.label);
+          console.log('   Track enabled:', track.enabled);
+          console.log('   Track readyState:', track.readyState);
+          console.log('   Sample rate (if available):', settings.sampleRate || 'not reported');
+          console.log('   Channel count:', settings.channelCount || 'not reported');
+        }
       } else {
         console.error('❌ Microphone access DENIED: No audio tracks found in stream');
         throw new Error('No audio tracks available');
@@ -366,7 +364,7 @@ export class OpenAIRealtimeClient {
         const int16Array = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           // Clamp value to [-1, 1] range to prevent overflow
-          const s = Math.max(-1, Math.min(1, inputData[i]));
+          const s = Math.max(-1, Math.min(1, inputData[i] ?? 0));
           // Convert to Int16: 
           // - Positive values: multiply by 32767 (0x7FFF)
           // - Negative values: multiply by 32768 (0x8000) but ensure it stays in range
@@ -382,7 +380,10 @@ export class OpenAIRealtimeClient {
         // This is more efficient than Array.from().map()
         let binaryString = '';
         for (let i = 0; i < uint8Array.length; i++) {
-          binaryString += String.fromCharCode(uint8Array[i]);
+          const byte = uint8Array[i];
+          if (byte !== undefined) {
+            binaryString += String.fromCharCode(byte);
+          }
         }
         
         const base64Audio = btoa(binaryString);

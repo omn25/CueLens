@@ -86,10 +86,13 @@ export default function WebcamFeed() {
           // Create a separate audio stream for OpenAI Real-Time API
           const audioStream = new MediaStream(audioTracks);
           audioStreamRef.current = audioStream;
-          console.log('🎤 Audio capture enabled:', audioTracks[0].label);
-          const settings = audioTracks[0].getSettings();
-          console.log('   Audio track settings:', settings);
-          console.log('   Sample rate (if available):', settings.sampleRate || 'not reported');
+          const firstTrack = audioTracks[0];
+          if (firstTrack) {
+            console.log('🎤 Audio capture enabled:', firstTrack.label);
+            const settings = firstTrack.getSettings();
+            console.log('   Audio track settings:', settings);
+            console.log('   Sample rate (if available):', settings.sampleRate || 'not reported');
+          }
           
           // Feature flag: Choose between Realtime WebSocket or HTTP chunk STT
           console.log(`🎤 STT mode: ${useRealtimeSTT ? 'Realtime WebSocket' : 'HTTP Chunk Fallback'}`);
@@ -117,7 +120,8 @@ export default function WebcamFeed() {
             // Store transcript in state
             setTranscripts((prev) => {
               if (!isFinal) {
-                const lastIsPartial = prev.length > 0 && !prev[prev.length - 1].isFinal;
+                const lastItem = prev.length > 0 ? prev[prev.length - 1] : undefined;
+                const lastIsPartial = lastItem && !lastItem.isFinal;
                 if (lastIsPartial) {
                   const updated = [...prev];
                   updated[updated.length - 1] = { text, timestamp: Date.now(), isFinal: false };
@@ -142,7 +146,8 @@ export default function WebcamFeed() {
               const frameBase64 = captureFrameFromVideo(videoRef.current);
               if (frameBase64) {
                 try {
-                  frameAssetId = await uploadFrame(frameBase64);
+                  const uploadedId = await uploadFrame(frameBase64);
+                  frameAssetId = uploadedId || undefined;
                 } catch (err) {
                   console.warn('⚠️ Failed to upload frame:', err);
                 }

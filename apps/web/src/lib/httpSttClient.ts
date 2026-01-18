@@ -19,7 +19,7 @@ export class HTTPSTTClient {
   private isRecording = false;
   private chunkDuration: number;
   private apiBaseUrl: string;
-  private captureFrameCallback?: () => string | null; // Callback to capture webcam frame
+  private captureFrameCallback?: () => string | null | undefined; // Callback to capture webcam frame
   
   // Burst recording: collect parts from ondataavailable, create blob on stop
   private parts: BlobPart[] = [];
@@ -103,7 +103,7 @@ export class HTTPSTTClient {
         }
 
         // Create complete container blob from all parts
-        const actualMimeType = this.mediaRecorder.mimeType || this.mimeType || 'audio/webm';
+        const actualMimeType = (this.mediaRecorder?.mimeType) || this.mimeType || 'audio/webm';
         const blob = new Blob(this.parts, { type: actualMimeType });
         
         console.log(`📦 Burst complete: ${this.parts.length} parts, ${blob.size} bytes total`);

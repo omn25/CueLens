@@ -140,12 +140,14 @@ async function convertToWav(inputPath: string, outputPath: string, timeoutMs: nu
     }
 
     throw new Error('ffmpeg conversion produced empty file');
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Log stderr if available
-    if (error.stderr) {
-      console.error('❌ ffmpeg stderr:', error.stderr.toString());
+    const execError = error as { stderr?: Buffer | string; message?: string };
+    if (execError.stderr) {
+      console.error('❌ ffmpeg stderr:', execError.stderr.toString());
     }
-    throw new Error(`ffmpeg conversion failed: ${error.message || error}`);
+    const errorMessage = execError.message || String(error);
+    throw new Error(`ffmpeg conversion failed: ${errorMessage}`);
   }
 }
 
@@ -245,8 +247,9 @@ export async function sttChunkHandler(req: Request, res: Response) {
         wavFilePath = convertedPath;
         fileToTranscribe = convertedPath;
         console.log(`✅ Using converted WAV file: ${wavFilePath}`);
-      } catch (conversionError: any) {
-        console.error('❌ ffmpeg conversion failed:', conversionError.message);
+      } catch (conversionError: unknown) {
+        const errorMessage = conversionError instanceof Error ? conversionError.message : String(conversionError);
+        console.error('❌ ffmpeg conversion failed:', errorMessage);
         
         // Clean up temp files
         try {
@@ -261,7 +264,7 @@ export async function sttChunkHandler(req: Request, res: Response) {
         }
         
         res.status(400).json({ 
-          error: `Audio conversion failed: ${conversionError.message}. File may be corrupted.` 
+          error: `Audio conversion failed: ${errorMessage}. File may be corrupted.` 
         });
         return;
       }
@@ -283,7 +286,8 @@ export async function sttChunkHandler(req: Request, res: Response) {
         response_format: "text",
       });
 
-      const text = typeof transcription === "string" ? transcription : transcription.text || "";
+      // When response_format is "text", OpenAI returns a string directly
+      const text = typeof transcription === "string" ? transcription : "";
       console.log(`✅ Transcription successful: "${text}"`);
       
       // Clean up temp files
@@ -300,7 +304,7 @@ export async function sttChunkHandler(req: Request, res: Response) {
       
       res.json({ text });
       return;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`❌ OpenAI transcription failed:`, error);
       
       // Clean up temp files
@@ -315,7 +319,7 @@ export async function sttChunkHandler(req: Request, res: Response) {
         // Ignore cleanup errors
       }
       
-      const errorMessage = error?.message || "OpenAI transcription failed";
+      const errorMessage = error instanceof Error ? error.message : "OpenAI transcription failed";
       res.status(500).json({ error: errorMessage });
       return;
     }
@@ -368,4 +372,4 @@ export async function sttDebugHandler(_req: Request, res: Response) {
 }
 
 // Export multer middleware for use in route registration
-export const sttUploadMiddleware = upload.single('file');
+export const sttUploadMiddleware: ReturnType<typeof upload.single> = upload.single('file');
