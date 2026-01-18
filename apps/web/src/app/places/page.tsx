@@ -7,13 +7,17 @@ import { useRoomProfiles } from '@/hooks/useRoomProfiles';
 import type { RoomProfile } from '@/types/room';
 
 function generateSummaryLine(profile: RoomProfile): string {
-  const rt = profile.profile.room_type.replace('_', ' ');
-  const floor = profile.profile.fixed_elements.surfaces.floor;
-  const furn = profile.profile.fixed_elements.major_furniture
-    .slice(0, 3)
+  if (!profile.profile) {
+    return 'Invalid profile data';
+  }
+  const rt = profile.profile.room_type?.replace('_', ' ') || 'unknown room';
+  const floor = profile.profile.fixed_elements?.surfaces?.floor;
+  const furn = profile.profile.fixed_elements?.major_furniture
+    ?.slice(0, 3)
     .map((f) => f.name)
     .join(', ');
-  return `${rt} · ${floor.color} ${floor.material} floor${furn ? ` · ${furn}` : ''}`;
+  const floorInfo = floor ? `${floor.color} ${floor.material} floor` : 'unknown floor';
+  return `${rt} · ${floorInfo}${furn ? ` · ${furn}` : ''}`;
 }
 
 export default function PlacesPage() {
@@ -25,10 +29,16 @@ export default function PlacesPage() {
   const [selectedProfile, setSelectedProfile] = useState<RoomProfile | null>(null);
   const [showJsonViewer, setShowJsonViewer] = useState(false);
 
-  const filteredProfiles = profiles.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.note?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProfiles = profiles.filter((p) => {
+    // Filter out invalid profiles that don't have the required profile data
+    if (!p.profile) {
+      return false;
+    }
+    return (
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.note?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  });
 
   const handleExport = () => {
     const json = exportProfiles();
@@ -203,14 +213,14 @@ export default function PlacesPage() {
                       <div className="absolute top-4 left-4 z-10">
                         <span className="bg-black/40 backdrop-blur-md text-white text-xs font-bold px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-1">
                           <span className="material-symbols-outlined text-[14px]">
-                            {profile.profile.room_type === 'bedroom' ? 'bed' :
-                             profile.profile.room_type === 'living_room' ? 'home' :
-                             profile.profile.room_type === 'kitchen' ? 'restaurant' :
-                             profile.profile.room_type === 'bathroom' ? 'bathtub' :
-                             profile.profile.room_type === 'office' ? 'work' :
+                            {profile.profile?.room_type === 'bedroom' ? 'bed' :
+                             profile.profile?.room_type === 'living_room' ? 'home' :
+                             profile.profile?.room_type === 'kitchen' ? 'restaurant' :
+                             profile.profile?.room_type === 'bathroom' ? 'bathtub' :
+                             profile.profile?.room_type === 'office' ? 'work' :
                              'location_on'}
                           </span>
-                          {profile.profile.room_type.replace('_', ' ')}
+                          {profile.profile?.room_type?.replace('_', ' ') || 'unknown room'}
                         </span>
                       </div>
                       {/* Observation Count Badge */}
@@ -361,8 +371,10 @@ export default function PlacesPage() {
                   </h3>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(JSON.stringify(selectedProfile.profile, null, 2));
-                      alert('Aggregated JSON copied to clipboard!');
+                      if (selectedProfile.profile) {
+                        navigator.clipboard.writeText(JSON.stringify(selectedProfile.profile, null, 2));
+                        alert('Aggregated JSON copied to clipboard!');
+                      }
                     }}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg transition-colors"
                   >
@@ -371,7 +383,7 @@ export default function PlacesPage() {
                   </button>
                 </div>
                 <pre className="text-xs text-slate-700 dark:text-slate-300 overflow-auto p-3 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 max-h-96">
-                  {JSON.stringify(selectedProfile.profile, null, 2)}
+                  {selectedProfile.profile ? JSON.stringify(selectedProfile.profile, null, 2) : 'No profile data available'}
                 </pre>
               </div>
 
