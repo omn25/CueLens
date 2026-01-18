@@ -20,9 +20,11 @@ export default function WebcamFeed() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Main branch state
+  // Main branch state - now storing plain text descriptions
+  const [liveDescription, setLiveDescription] = useState<string | null>(null);
   const [liveObservation, setLiveObservation] = useState<RoomObservation | null>(null);
   const [detectedRoom, setDetectedRoom] = useState<{ name: string; score: number } | null>(null);
+  const [currentMatch, setCurrentMatch] = useState<{ name: string; score: number } | null>(null);
 
   // KeeretFinal preference: start minimized (summary view)
   const [showFullOutput, setShowFullOutput] = useState(false);
@@ -36,6 +38,12 @@ export default function WebcamFeed() {
   const observationBufferRef = useRef<RoomObservation[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const profilesRef = useRef<any[]>([]);
+  
+  // Throttling for description preview updates (every 10 seconds)
+  const latestDescriptionRef = useRef<string | null>(null);
+  const lastUpdateTimeRef = useRef<number>(0);
+  const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isFirstObservationRef = useRef<boolean>(true);
 
   // STT (Om branch) - audio only (no UI)
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -55,53 +63,64 @@ export default function WebcamFeed() {
     profilesRef.current = profiles;
   }, [profiles]);
 
-  // Handle observations from Overshoot with stable callback
-  const handleObservation = useCallback((obs: RoomObservation) => {
-    setLiveObservation(obs);
+  // Handle plain text descriptions from Overshoot with stable callback
+  // When outputSchema is empty, the hook stores plain text in the summary field
+  const handleDescription = useCallback((obs: RoomObservation) => {
+    // Extract description from summary field (which contains plain text when no schema)
+    const description = obs.summary || JSON.stringify(obs);
+    
+    // Store the latest description in ref (for throttled UI updates)
+    latestDescriptionRef.current = description;
 
-    observationBufferRef.current.push(obs);
-    if (observationBufferRef.current.length > 5) {
-      observationBufferRef.current.shift();
-    }
-
-    const currentProfiles = profilesRef.current;
-    if (currentProfiles.length === 0) return;
-
-    const now = Date.now();
-
-    // Cooldown check
-    if (now < cooldownUntilRef.current) return;
-
-    // Find best match using deterministic matching
-    const best = pickBestMatch(
-      obs,
-      currentProfiles.map((p) => ({
-        profile: p.profile,
-        id: p.id,
-        name: p.name,
-      }))
-    );
-
-    // 50% threshold
-    if (best.score >= 0.5) {
-      if (lastMatchRef.current && lastMatchRef.current.id === best.id) {
-        consecMatchRef.current += 1;
+    // Match against room profiles
+    const profilesForMatching = profilesRef.current.map((p) => ({
+      profile: p.profile,
+      id: p.id,
+      name: p.name,
+    })).filter((p) => p.profile !== null && p.profile !== undefined);
+    
+    if (profilesForMatching.length > 0) {
+      const match = pickBestMatch(obs, profilesForMatching);
+      // Show match if score >= 0.4 (40%)
+      if (match.score >= 0.4) {
+        setCurrentMatch({ name: match.name, score: match.score });
       } else {
-        consecMatchRef.current = 1;
+        setCurrentMatch(null);
       }
-
-      lastMatchRef.current = { id: best.id, name: best.name, score: best.score };
-
-      // Need 3 consecutive matches
-      if (consecMatchRef.current >= 3) {
-        setDetectedRoom({ name: best.name, score: best.score });
-        cooldownUntilRef.current = now + 30000; // 30s cooldown
-        consecMatchRef.current = 0;
-      }
-    } else {
-      consecMatchRef.current = 0;
-      lastMatchRef.current = null;
     }
+
+    // Update immediately if this is the first description or if 10 seconds have passed
+    const now = Date.now();
+    if (isFirstObservationRef.current || now - lastUpdateTimeRef.current >= 10000) {
+      setLiveDescription(description);
+      setLiveObservation(obs); // Store full observation for JSON view
+      lastUpdateTimeRef.current = now;
+      isFirstObservationRef.current = false;
+    }
+  }, []);
+
+  // Update description preview every 10 seconds (throttling - ensures updates even if handleDescription misses some)
+  useEffect(() => {
+    const updatePreview = () => {
+      if (latestDescriptionRef.current) {
+        const now = Date.now();
+        // Only update if 10 seconds have passed since last update (prevent redundant updates)
+        if (now - lastUpdateTimeRef.current >= 10000) {
+          setLiveDescription(latestDescriptionRef.current);
+          lastUpdateTimeRef.current = now;
+        }
+      }
+    };
+
+    // Set up interval to update every 10 seconds (backup mechanism)
+    updateIntervalRef.current = setInterval(updatePreview, 10000);
+
+    return () => {
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
+      }
+    };
   }, []);
 
   // Enable Overshoot vision with room observation schema
@@ -112,14 +131,16 @@ export default function WebcamFeed() {
     getStreamStatus,
     isActive: visionActive,
   } = useOvershootVision({
-    prompt: ROOM_OBSERVATION_PROMPT,
-    outputSchema: ROOM_OBSERVATION_OUTPUT_SCHEMA,
+    prompt: 'Describe what you see in this room in plain language. Be detailed and describe the furniture, colors, lighting, and any notable features.',
+    outputSchema: {}, // No schema - just plain text
     enabled: true,
     processing: {
       clip_length_seconds: 1,
-      delay_seconds: 1,
+      delay_seconds: 2, // Increased delay for more infrequent updates (cheaper)
+      fps: 30,
+      sampling_ratio: 0.1, // Low sampling ratio (10% of frames) for cost efficiency
     },
-    onObservation: handleObservation,
+    onObservation: handleDescription,
   });
 
   // ---- KeeretFinal stream stability additions ----
@@ -473,6 +494,26 @@ export default function WebcamFeed() {
       {/* Gradient Overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-background-dark/80 via-transparent to-black/30"></div>
 
+      {/* Match Message Overlay - Shows when match >= 40% */}
+      {currentMatch && (
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-40 animate-fade-in-up">
+          <div className="glass-panel rounded-xl px-6 py-4 shadow-2xl border-2 border-emerald-500/50 bg-emerald-500/10 backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-emerald-400 text-2xl">location_on</span>
+              <div className="flex flex-col">
+                <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Matched</span>
+                <span className="text-white text-lg font-bold">
+                  You are in the {currentMatch.name}
+                </span>
+                <span className="text-emerald-300/80 text-xs mt-0.5">
+                  {Math.round(currentMatch.score * 100)}% match
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Detected Room Modal */}
       {detectedRoom && (
         <DetectedRoomModal roomName={detectedRoom.name} confidence={detectedRoom.score} onDismiss={handleDismissModal} />
@@ -482,7 +523,7 @@ export default function WebcamFeed() {
       <div className="absolute bottom-6 right-6 z-30 max-w-lg rounded-xl border-2 border-primary/50 shadow-2xl glass-panel p-4 bg-black/95 backdrop-blur-sm">
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-primary text-lg">smart_display</span>
-          <h3 className="text-sm font-bold text-white">Live JSON Data</h3>
+          <h3 className="text-sm font-bold text-white">Live Description</h3>
           <div className="ml-auto flex items-center gap-2">
             {isStreaming ? (
               visionQueued ? (
@@ -496,64 +537,25 @@ export default function WebcamFeed() {
             <button
               onClick={() => setShowFullOutput(!showFullOutput)}
               className="text-white/60 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
-              title={showFullOutput ? 'Show summary' : 'Show full JSON'}
+              title={showFullOutput ? 'Show summary' : 'Show full description'}
             >
               <span className="material-symbols-outlined text-lg">{showFullOutput ? 'unfold_less' : 'unfold_more'}</span>
             </button>
           </div>
         </div>
 
-        {liveObservation ? (
-          <>
-            {showFullOutput ? (
-              <div className="text-[10px] text-white/90 max-h-[500px] overflow-y-auto bg-slate-900/80 rounded-lg p-3 border border-white/20">
-                <pre className="text-white font-mono leading-relaxed whitespace-pre-wrap break-words">
-                  {JSON.stringify(liveObservation, null, 2)}
-                </pre>
-              </div>
+        {liveDescription ? (
+          <div className="text-[11px] text-white/90 max-h-[400px] overflow-y-auto">
+            {showFullOutput && liveObservation ? (
+              <pre className="text-white leading-relaxed whitespace-pre-wrap break-words font-mono text-[10px]">
+                {JSON.stringify(liveObservation, null, 2)}
+              </pre>
             ) : (
-              <div className="text-[10px] text-white/80 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-white/60">Room:</span>
-                  <span className="text-white font-medium capitalize">{liveObservation.room_type.replace('_', ' ')}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-white/60">Furniture:</span>
-                  <span className="text-white">{liveObservation.fixed_elements.major_furniture.length} items</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-white/60">Lighting:</span>
-                  <span className="text-white">{liveObservation.fixed_elements.lighting.length} fixtures</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-white/60">Markers:</span>
-                  <span className="text-white">{liveObservation.distinctive_markers.length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-white/60">Decor:</span>
-                  <span className="text-white">{liveObservation.fixed_elements.large_decor.length} items</span>
-                </div>
-
-                {liveObservation.summary && (
-                  <div className="mt-2 pt-2 border-t border-white/10">
-                    <div className="text-white/50 text-[9px] mb-1">Summary:</div>
-                    <p className="text-white/70 text-[9px] leading-relaxed">{liveObservation.summary}</p>
-                  </div>
-                )}
-              </div>
+              <p className="text-white leading-relaxed whitespace-pre-wrap break-words">
+                {liveDescription}
+              </p>
             )}
-
-            {detectedRoom && (
-              <div className="mt-3 pt-3 border-t border-emerald-500/50">
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 text-xs font-bold">✓ MATCH:</span>
-                  <span className="text-emerald-400 font-bold text-xs">
-                    {detectedRoom.name} ({Math.round(detectedRoom.score * 100)}%)
-                  </span>
-                </div>
-              </div>
-            )}
-          </>
+          </div>
         ) : (
           <div className="space-y-2 py-4">
             <p className="text-white/60 text-[11px] font-medium">Waiting for Overshoot observation...</p>
@@ -588,21 +590,7 @@ export default function WebcamFeed() {
         })()}
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="bg-red-500/90 text-white px-6 py-4 rounded-xl shadow-lg max-w-md">
-            <p className="font-semibold mb-2">Error</p>
-            <p className="text-sm">{error}</p>
-            <button
-              onClick={() => setError(null)}
-              className="mt-4 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Error Message - Removed to prevent HTML rendering issues */}
     </div>
   );
 }
