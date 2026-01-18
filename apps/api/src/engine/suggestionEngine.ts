@@ -173,6 +173,7 @@ const COMMON_NAMES = [
 /**
  * Extract name candidates using specific patterns
  * Patterns: "hi|hey|hello NAME", "this is NAME", "meet NAME", "my name is NAME", "NAME,"
+ * Also checks against COMMON_NAMES list (case-insensitive)
  */
 function extractNameCandidates(transcript: string): string[] {
   const candidates: string[] = [];
@@ -180,48 +181,47 @@ function extractNameCandidates(transcript: string): string[] {
   const words = transcript.trim().split(/\s+/);
   const lowerWords = lowerTranscript.trim().split(/\s+/);
   
-  // Pattern 1: "hi|hey|hello NAME" - token(s) after greeting
-  const greetingPattern = /^(hi|hey|hello)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
+  // Pattern 1: "hi|hey|hello NAME" - token(s) after greeting (case-insensitive)
+  const greetingPattern = /(?:^|\s)(hi|hey|hello)\s+([a-z]+(?:\s+[a-z]+)?)/i;
   const greetingMatch = transcript.match(greetingPattern);
   if (greetingMatch && greetingMatch[2]) {
     const name = greetingMatch[2].trim();
-    // Allow 1-2 tokens (first + last)
     const nameParts = name.split(/\s+/);
     if (nameParts.length <= 2) {
-      candidates.push(name);
+      candidates.push(toTitleCase(name));
     }
   }
   
-  // Pattern 2: "this is NAME" - token(s) after "this is"
-  const thisIsPattern = /this\s+is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
+  // Pattern 2: "this is NAME" - token(s) after "this is" (case-insensitive)
+  const thisIsPattern = /this\s+is\s+([a-z]+(?:\s+[a-z]+)?)/i;
   const thisIsMatch = transcript.match(thisIsPattern);
   if (thisIsMatch && thisIsMatch[1]) {
     const name = thisIsMatch[1].trim();
     const nameParts = name.split(/\s+/);
     if (nameParts.length <= 2) {
-      candidates.push(name);
+      candidates.push(toTitleCase(name));
     }
   }
   
-  // Pattern 3: "meet NAME" - token(s) after "meet"
-  const meetPattern = /meet\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
+  // Pattern 3: "meet NAME" - token(s) after "meet" (case-insensitive)
+  const meetPattern = /meet\s+([a-z]+(?:\s+[a-z]+)?)/i;
   const meetMatch = transcript.match(meetPattern);
   if (meetMatch && meetMatch[1]) {
     const name = meetMatch[1].trim();
     const nameParts = name.split(/\s+/);
     if (nameParts.length <= 2) {
-      candidates.push(name);
+      candidates.push(toTitleCase(name));
     }
   }
   
-  // Pattern 4: "my name is NAME" - token(s) after "my name is"
-  const myNameIsPattern = /my\s+name\s+is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
+  // Pattern 4: "my name is NAME" - token(s) after "my name is" (case-insensitive)
+  const myNameIsPattern = /my\s+name\s+is\s+([a-z]+(?:\s+[a-z]+)?)/i;
   const myNameIsMatch = transcript.match(myNameIsPattern);
   if (myNameIsMatch && myNameIsMatch[1]) {
     const name = myNameIsMatch[1].trim();
     const nameParts = name.split(/\s+/);
     if (nameParts.length <= 2) {
-      candidates.push(name);
+      candidates.push(toTitleCase(name));
     }
   }
   
@@ -255,28 +255,59 @@ function extractNameCandidates(transcript: string): string[] {
     }
   }
   
-  // Fallback: if no patterns matched but we have capitalized words, extract by position after common phrases
-  if (candidates.length === 0) {
-      // Look for capitalized word after "hi", "hey", "hello"
-      for (let i = 0; i < lowerWords.length - 1; i++) {
-        const lowerWord = lowerWords[i];
-        if (lowerWord && ['hi', 'hey', 'hello'].includes(lowerWord)) {
-          const nextWord = words[i + 1];
-          if (nextWord && nextWord.length > 0 && nextWord[0] && nextWord[0] === nextWord[0].toUpperCase()) {
-            const name = nextWord.replace(/[^\w]/g, '');
-            if (name.length > 1) {
-              candidates.push(name);
-            }
+  // Pattern 6: Check for common names in transcript (case-insensitive)
+  // Look for common names as standalone words (not part of other words)
+  for (const commonName of COMMON_NAMES) {
+    // Use word boundary regex to match whole words only
+    const namePattern = new RegExp(`\\b${commonName}\\b`, 'i');
+    if (namePattern.test(transcript)) {
+      // Check if it's not already in candidates
+      const titleCaseName = toTitleCase(commonName);
+      if (!candidates.some(c => c.toLowerCase() === commonName.toLowerCase())) {
+        candidates.push(titleCaseName);
+      }
+    }
+  }
+  
+  // Pattern 7: Look for capitalized words that might be names (after greetings, etc.)
+  // This catches names even if they're not in the common names list
+  for (let i = 0; i < lowerWords.length - 1; i++) {
+    const lowerWord = lowerWords[i];
+    if (lowerWord && ['hi', 'hey', 'hello', 'meet', 'call', 'named'].includes(lowerWord)) {
+      const nextWord = words[i + 1];
+      if (nextWord) {
+        const cleanWord = nextWord.replace(/[^\w]/g, '');
+        // If it's capitalized and looks like a name (2+ chars, starts with letter)
+        if (cleanWord.length >= 2 && 
+            cleanWord[0] && 
+            cleanWord[0] === cleanWord[0].toUpperCase() &&
+            /^[a-z]/i.test(cleanWord)) {
+          // Check it's not a relationship keyword
+          const lowerClean = cleanWord.toLowerCase();
+          if (!(RELATIONSHIP_KEYWORDS as readonly string[]).includes(lowerClean)) {
+            candidates.push(cleanWord);
           }
         }
       }
+    }
+  }
+  
+  // Pattern 8: "I'm NAME" or "I am NAME"
+  const imPattern = /(?:^|\s)(?:i'?m|i\s+am)\s+([a-z]+(?:\s+[a-z]+)?)/i;
+  const imMatch = transcript.match(imPattern);
+  if (imMatch && imMatch[1]) {
+    const name = imMatch[1].trim();
+    const nameParts = name.split(/\s+/);
+    if (nameParts.length <= 2) {
+      candidates.push(toTitleCase(name));
+    }
   }
   
   // Remove duplicates and filter out relationship keywords
   const unique = candidates.filter((c, idx, arr) => {
     const lower = c.toLowerCase();
     const isRelationship = (RELATIONSHIP_KEYWORDS as readonly string[]).includes(lower);
-    const isUnique = arr.indexOf(c) === idx;
+    const isUnique = arr.findIndex(item => item.toLowerCase() === lower) === idx;
     return !isRelationship && isUnique;
   });
   
