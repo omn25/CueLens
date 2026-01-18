@@ -148,7 +148,7 @@ export default function PlacesPage() {
                 <div className="p-5 flex flex-col flex-1">
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">
-                      Dr. Smith's Waiting Room
+                      Dr. Smith&apos;s Waiting Room
                     </h3>
                     <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
                       <span className="material-symbols-outlined">more_horiz</span>

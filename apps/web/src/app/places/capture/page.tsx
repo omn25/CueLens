@@ -88,7 +88,7 @@ export default function CapturePage() {
                   Room Saved Successfully!
                 </h2>
                 <p className="text-slate-600 dark:text-slate-300 mb-6">
-                  {savedRoom.name} has been added to your places. CueLens will now recognize this room when you're in it.
+                  {savedRoom.name} has been added to your places. CueLens will now recognize this room when you&apos;re in it.
                 </p>
                 <button
                   onClick={handleContinue}

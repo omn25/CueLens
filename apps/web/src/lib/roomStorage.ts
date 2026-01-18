@@ -28,7 +28,7 @@ export interface RoomFeatures {
     type: string;
     fixtures: string[];
   };
-  [key: string]: any; // Allow for additional features
+  [key: string]: unknown; // Allow for additional features
 }
 
 export interface RoomData {
@@ -79,14 +79,17 @@ export function updateRoom(id: string, updates: Partial<RoomData>): RoomData | n
   
   if (index === -1) return null;
   
+  const existingRoom = rooms[index];
+  if (!existingRoom) return null;
+  
   rooms[index] = {
-    ...rooms[index],
+    ...existingRoom,
     ...updates,
     updatedAt: new Date().toISOString(),
-  };
+  } as RoomData;
   
   localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
-  return rooms[index];
+  return rooms[index]!;
 }
 
 // Delete a room

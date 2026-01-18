@@ -27,7 +27,7 @@ export function extractFeaturesFromDescription(description: string): RoomFeature
 
   // Extract wall color
   const wallColors = extractColors(lowerDesc, ['wall', 'paint']);
-  if (wallColors.length > 0) {
+  if (wallColors.length > 0 && wallColors[0]) {
     features.walls = {
       color: wallColors[0],
     };
