@@ -5,7 +5,7 @@
  * that define the shape of data exchanged between the web app and API.
  */
 
-export * from "./person";
-export * from "./place";
-export * from "./visionEvent";
-export * from "./suggestion";
+export * from "./person.js";
+export * from "./place.js";
+export * from "./visionEvent.js";
+export * from "./suggestion.js";
