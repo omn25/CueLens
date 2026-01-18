@@ -10,7 +10,11 @@ function generateSummaryLine(profile: RoomProfile): string {
   if (!profile.profile) {
     return 'Invalid profile data';
   }
-  const rt = profile.profile.room_type?.replace('_', ' ') || 'unknown room';
+  let rt = profile.profile.room_type?.replace('_', ' ') || 'unknown room';
+  // Replace bedroom and living_room with lounge area
+  if (profile.profile.room_type === 'bedroom' || profile.profile.room_type === 'living_room') {
+    rt = 'lounge area';
+  }
   const floor = profile.profile.fixed_elements?.surfaces?.floor;
   const furn = profile.profile.fixed_elements?.major_furniture
     ?.slice(0, 3)
@@ -213,14 +217,13 @@ export default function PlacesPage() {
                       <div className="absolute top-4 left-4 z-10">
                         <span className="bg-black/40 backdrop-blur-md text-white text-xs font-bold px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-1">
                           <span className="material-symbols-outlined text-[14px]">
-                            {profile.profile?.room_type === 'bedroom' ? 'bed' :
-                             profile.profile?.room_type === 'living_room' ? 'home' :
+                            {profile.profile?.room_type === 'bedroom' || profile.profile?.room_type === 'living_room' ? 'home' :
                              profile.profile?.room_type === 'kitchen' ? 'restaurant' :
                              profile.profile?.room_type === 'bathroom' ? 'bathtub' :
                              profile.profile?.room_type === 'office' ? 'work' :
                              'location_on'}
                           </span>
-                          {profile.profile?.room_type === 'living_room' ? 'lounge area' :
+                          {profile.profile?.room_type === 'bedroom' || profile.profile?.room_type === 'living_room' ? 'lounge area' :
                            profile.profile?.room_type?.replace('_', ' ') || 'unknown room'}
                         </span>
                       </div>

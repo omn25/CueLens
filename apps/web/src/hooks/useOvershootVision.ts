@@ -4,12 +4,12 @@ import { visionStreamManager } from '@/lib/visionStreamManager';
 
 // Fixed static RoomObservation data when API is down - cached to ensure it's always the same
 const STATIC_FAKE_OBSERVATION: RoomObservation = {
-  room_type: 'bedroom',
+  room_type: 'living_room',
   fixed_elements: {
     major_furniture: [
-      { name: 'bed', count: 1, attributes: ['queen size', 'wood frame'] },
-      { name: 'dresser', count: 1, attributes: ['wood', 'brown'] },
-      { name: 'nightstand', count: 2, attributes: ['wood', 'simple'] },
+      { name: 'sofa', count: 1, attributes: ['leather', 'three-seater'] },
+      { name: 'coffee table', count: 1, attributes: ['wooden', 'rectangular'] },
+      { name: 'armchair', count: 2, attributes: ['fabric'] },
     ],
     surfaces: {
       floor: {
@@ -40,7 +40,7 @@ const STATIC_FAKE_OBSERVATION: RoomObservation = {
     'Window on left side',
     'Door visible',
   ],
-  summary: 'This is a bedroom with 3 main furniture items. The floor is carpet and walls are white. [FAKE DATA - API Down]',
+  summary: 'This is a lounge area with 3 main furniture items. The floor is carpet and walls are white. [FAKE DATA - API Down]',
 };
 
 // Generate fixed static RoomObservation data when API is down

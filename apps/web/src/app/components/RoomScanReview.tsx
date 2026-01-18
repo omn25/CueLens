@@ -102,7 +102,7 @@ export default function RoomScanReview({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Bedroom, Kitchen, Living Room"
+            placeholder="e.g., Lounge Area, Kitchen, Living Room"
             className="w-full bg-white dark:bg-card-dark border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 rounded-lg py-3 px-4 focus:ring-2 focus:ring-primary focus:border-transparent outline-none shadow-sm transition-all"
             autoFocus
             onKeyDown={(e) => {

@@ -363,7 +363,10 @@ export default function WebcamFeed() {
             },
             onError: (err) => {
               console.error('HTTP STT error:', err);
-              if (mounted) setError(`HTTP STT error: ${err.message}`);
+              // Don't show "Audio file too small" errors to users - these are expected during buffering
+              if (mounted && !err.message.includes('Audio file too small')) {
+                setError(`HTTP STT error: ${err.message}`);
+              }
             },
             chunkDurationMs: 2500,
           });

@@ -55,7 +55,29 @@ export function useRoomProfiles() {
         const arr = JSON.parse(raw) as RoomProfile[];
         // Basic validation
         if (Array.isArray(arr) && arr.length > 0) {
-          setProfiles(arr);
+          // Migrate any profiles with "Bedroom" name to "Lounge Area"
+          const migrated = arr.map((profile) => {
+            if (profile.name === 'Bedroom' || profile.name === 'bedroom') {
+              return { ...profile, name: 'Lounge Area' };
+            }
+            return profile;
+          });
+          // Also migrate room_type from bedroom to living_room if needed
+          const fullyMigrated = migrated.map((profile) => {
+            if (profile.profile?.room_type === 'bedroom') {
+              return {
+                ...profile,
+                profile: { ...profile.profile, room_type: 'living_room' as const },
+                rawObservations: profile.rawObservations?.map((obs) =>
+                  obs.room_type === 'bedroom' ? { ...obs, room_type: 'living_room' as const } : obs
+                ),
+              };
+            }
+            return profile;
+          });
+          setProfiles(fullyMigrated);
+          // Save migrated data back to localStorage
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(fullyMigrated));
         } else {
           // Array is empty or invalid, initialize with defaults
           const defaultLoungeArea = getDefaultLoungeArea();

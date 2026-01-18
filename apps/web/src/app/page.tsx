@@ -46,7 +46,7 @@ export default function Home() {
                     Location Identified
                   </span>
                 </div>
-                <h2 className="text-xl font-bold text-white tracking-tight">Home – Bedroom</h2>
+                <h2 className="text-xl font-bold text-white tracking-tight">Home – Lounge Area</h2>
               </div>
               <div className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-end">
@@ -73,7 +73,7 @@ export default function Home() {
                 </span>
               </div>
               <p className="text-sm text-white font-medium leading-relaxed">
-                You&apos;re in your bedroom. Everything is okay.
+                You&apos;re in your lounge area. Everything is okay.
               </p>
             </div>
 
