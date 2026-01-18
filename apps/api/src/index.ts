@@ -11,6 +11,7 @@ import {
 import { transcriptHandler } from "./routes/transcript.js";
 import { createRealtimeSessionHandler } from "./routes/realtimeSession.js";
 import { uploadFrameHandler, getFrameHandler } from "./routes/frames.js";
+import { sttChunkHandler, sttDebugHandler, sttUploadMiddleware } from "./routes/stt.js";
 import {
   listPeopleHandler,
   getPersonHandler,
@@ -45,6 +46,10 @@ app.post("/suggestions/:id/reject", rejectSuggestionHandler);
 
 // Transcript route
 app.post("/transcript", transcriptHandler);
+
+// STT fallback route (HTTP-based transcription)
+app.post("/stt/chunk", sttUploadMiddleware, sttChunkHandler);
+app.get("/stt/debug", sttDebugHandler);
 
 // Real-Time API session route (creates ephemeral token for browser connections)
 app.post("/realtime/session", createRealtimeSessionHandler);

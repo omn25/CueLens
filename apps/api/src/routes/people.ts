@@ -24,6 +24,10 @@ export function listPeopleHandler(_req: Request, res: Response) {
  */
 export function getPersonHandler(req: Request, res: Response) {
   const { id } = req.params;
+  if (!id) {
+    res.status(400).json({ error: "Person ID is required" });
+    return;
+  }
   const person = getPerson(id);
 
   if (!person) {
@@ -94,6 +98,10 @@ export function upsertPersonHandler(req: Request, res: Response) {
  */
 export function updatePersonHandler(req: Request, res: Response) {
   const { id } = req.params;
+  if (!id) {
+    res.status(400).json({ error: "Person ID is required" });
+    return;
+  }
   const schema = z.object({
     displayName: z.string().min(1).optional(),
     relationship: z.string().optional(),
@@ -128,6 +136,10 @@ export function updatePersonHandler(req: Request, res: Response) {
  */
 export function deletePersonHandler(req: Request, res: Response) {
   const { id } = req.params;
+  if (!id) {
+    res.status(400).json({ error: "Person ID is required" });
+    return;
+  }
   const deleted = deletePerson(id);
 
   if (!deleted) {

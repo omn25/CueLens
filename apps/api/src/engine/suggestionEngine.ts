@@ -22,6 +22,155 @@ const RELATIONSHIP_KEYWORDS = [
 ] as const;
 
 /**
+ * Common names to recognize (case-insensitive)
+ * Includes hardcoded names: michael, keeret, om
+ */
+const COMMON_NAMES = [
+  "michael",
+  "keeret",
+  "om",
+  // Add more common names as needed
+  "john",
+  "jane",
+  "david",
+  "sarah",
+  "james",
+  "emily",
+  "robert",
+  "lisa",
+  "william",
+  "mary",
+  "richard",
+  "patricia",
+  "joseph",
+  "jennifer",
+  "thomas",
+  "linda",
+  "charles",
+  "elizabeth",
+  "christopher",
+  "barbara",
+  "daniel",
+  "susan",
+  "matthew",
+  "jessica",
+  "anthony",
+  "sarah",
+  "mark",
+  "karen",
+  "donald",
+  "nancy",
+  "steven",
+  "betty",
+  "paul",
+  "helen",
+  "andrew",
+  "sandra",
+  "joshua",
+  "donna",
+  "kenneth",
+  "carol",
+  "kevin",
+  "ruth",
+  "brian",
+  "sharon",
+  "george",
+  "michelle",
+  "edward",
+  "laura",
+  "ronald",
+  "sarah",
+  "timothy",
+  "kimberly",
+  "jason",
+  "deborah",
+  "jeffrey",
+  "dorothy",
+  "ryan",
+  "lisa",
+  "jacob",
+  "nancy",
+  "gary",
+  "karen",
+  "nicholas",
+  "betty",
+  "eric",
+  "helen",
+  "jonathan",
+  "sandra",
+  "stephen",
+  "donna",
+  "larry",
+  "carol",
+  "justin",
+  "michelle",
+  "scott",
+  "emily",
+  "brandon",
+  "kimberly",
+  "benjamin",
+  "deborah",
+  "samuel",
+  "rachel",
+  "frank",
+  "cynthia",
+  "gregory",
+  "maria",
+  "raymond",
+  "stephanie",
+  "alexander",
+  "rebecca",
+  "patrick",
+  "sharon",
+  "jack",
+  "kathleen",
+  "dennis",
+  "anna",
+  "jerry",
+  "pamela",
+  "tyler",
+  "samantha",
+  "aaron",
+  "christine",
+  "jose",
+  "emma",
+  "henry",
+  "catherine",
+  "adam",
+  "frances",
+  "douglas",
+  "virginia",
+  "nathan",
+  "marie",
+  "zachary",
+  "janet",
+  "kyle",
+  "catherine",
+  "noah",
+  "frances",
+  "alan",
+  "ann",
+  "juan",
+  "joyce",
+  "wayne",
+  "diane",
+  "roy",
+  "alice",
+  "ralph",
+  "julie",
+  "eugene",
+  "heather",
+  "louis",
+  "teresa",
+  "lawrence",
+  "doris",
+  "nicholas",
+  "gloria",
+  "christopher",
+  "evelyn",
+] as const;
+
+/**
  * Extract name candidates using specific patterns
  * Patterns: "hi|hey|hello NAME", "this is NAME", "meet NAME", "my name is NAME", "NAME,"
  */
@@ -79,17 +228,23 @@ function extractNameCandidates(transcript: string): string[] {
   // Pattern 5: "NAME," - name followed by comma (position-based extraction)
   // Extract capitalized word(s) before comma
   for (let i = 0; i < words.length - 1; i++) {
-    const word = words[i].replace(/[^\w]/g, '');
+    const currentWord = words[i];
     const nextWord = words[i + 1];
+    if (!currentWord || !nextWord) continue;
+    
+    const word = currentWord.replace(/[^\w]/g, '');
     
     // Check if current word is capitalized and next word starts with comma
-    if (word.length > 1 && word[0] === word[0].toUpperCase() && nextWord.startsWith(',')) {
+    if (word.length > 1 && word[0] && word[0] === word[0].toUpperCase() && nextWord && nextWord.startsWith(',')) {
       // Try to get 1-2 tokens before the comma
       let name = word;
       if (i > 0) {
-        const prevWord = words[i - 1].replace(/[^\w]/g, '');
-        if (prevWord.length > 1 && prevWord[0] === prevWord[0].toUpperCase()) {
-          name = `${prevWord} ${word}`;
+        const prevWordRaw = words[i - 1];
+        if (prevWordRaw) {
+          const prevWord = prevWordRaw.replace(/[^\w]/g, '');
+          if (prevWord.length > 1 && prevWord[0] && prevWord[0] === prevWord[0].toUpperCase()) {
+            name = `${prevWord} ${word}`;
+          }
         }
       }
       
@@ -102,24 +257,25 @@ function extractNameCandidates(transcript: string): string[] {
   
   // Fallback: if no patterns matched but we have capitalized words, extract by position after common phrases
   if (candidates.length === 0) {
-    // Look for capitalized word after "hi", "hey", "hello"
-    for (let i = 0; i < lowerWords.length - 1; i++) {
-      if (['hi', 'hey', 'hello'].includes(lowerWords[i])) {
-        const nextWord = words[i + 1];
-        if (nextWord && nextWord[0] === nextWord[0].toUpperCase()) {
-          const name = nextWord.replace(/[^\w]/g, '');
-          if (name.length > 1) {
-            candidates.push(name);
+      // Look for capitalized word after "hi", "hey", "hello"
+      for (let i = 0; i < lowerWords.length - 1; i++) {
+        const lowerWord = lowerWords[i];
+        if (lowerWord && ['hi', 'hey', 'hello'].includes(lowerWord)) {
+          const nextWord = words[i + 1];
+          if (nextWord && nextWord.length > 0 && nextWord[0] && nextWord[0] === nextWord[0].toUpperCase()) {
+            const name = nextWord.replace(/[^\w]/g, '');
+            if (name.length > 1) {
+              candidates.push(name);
+            }
           }
         }
       }
-    }
   }
   
   // Remove duplicates and filter out relationship keywords
   const unique = candidates.filter((c, idx, arr) => {
     const lower = c.toLowerCase();
-    const isRelationship = RELATIONSHIP_KEYWORDS.includes(lower as any);
+    const isRelationship = (RELATIONSHIP_KEYWORDS as readonly string[]).includes(lower);
     const isUnique = arr.indexOf(c) === idx;
     return !isRelationship && isUnique;
   });
@@ -139,35 +295,59 @@ function hasGreetingPattern(transcript: string): boolean {
  * Check if transcript contains "this is NAME" or "my name is NAME"
  */
 function hasNameIntroductionPattern(transcript: string): boolean {
-  const lower = transcript.toLowerCase();
   return /this\s+is\s+[A-Z]/i.test(transcript) || /my\s+name\s+is\s+[A-Z]/i.test(transcript);
 }
 
 /**
- * Calculate confidence score based on new heuristic rules
+ * Calculate confidence score using heuristic (MVP-friendly)
+ * 
+ * MVP CONFIDENCE HEURISTIC:
+ * - Base range: 0.75-0.90 (higher than before for MVP demo)
+ * - Increases for longer/clearer transcripts
+ * - Increases for strong patterns ("this is X", "my name is X", "hi mom", "hi dad")
+ * - Decreases for very short or noisy fragments
+ * 
+ * NOTE: This is a heuristic for MVP demo purposes.
+ * OpenAI transcription doesn't provide a native confidence scalar.
  */
 function calculateConfidence(
   transcript: string,
-  hasFrame: boolean,
+  _hasFrame: boolean,
   isGreetingPattern: boolean,
   isNameIntroductionPattern: boolean
 ): number {
-  let confidence = 0.55; // Base confidence
+  // Base confidence in MVP range: 0.75-0.90
+  let confidence = 0.75;
   
+  // Increase for longer transcripts (clearer = more confident)
+  const wordCount = transcript.trim().split(/\s+/).length;
+  if (wordCount >= 10) {
+    confidence += 0.08; // +0.08 for longer transcripts
+  } else if (wordCount >= 5) {
+    confidence += 0.04; // +0.04 for medium transcripts
+  }
+  
+  // Increase for strong patterns
   if (isGreetingPattern) {
-    confidence += 0.15; // +0.15 if greeting pattern
+    confidence += 0.05; // +0.05 for greeting patterns ("hi mom", "hi dad")
   }
   
   if (isNameIntroductionPattern) {
-    confidence += 0.10; // +0.10 if "this is NAME" / "my name is NAME"
+    confidence += 0.06; // +0.06 for name introductions ("this is X", "my name is X")
   }
   
+  // Increase if repeated recently (pattern confirmation)
   if (wasRepeatedRecently(transcript)) {
-    confidence += 0.10; // +0.10 if repeated in last 20s window
+    confidence += 0.03; // +0.03 if repeated
   }
   
-  // Clamp to [0.35, 0.95]
-  return Math.max(0.35, Math.min(0.95, confidence));
+  // Decrease for very short fragments (likely incomplete/noisy)
+  if (wordCount < 3) {
+    confidence -= 0.05; // -0.05 for very short fragments
+  }
+  
+  // Clamp to MVP range [0.70, 0.95] (slightly wider than base for edge cases)
+  return Math.max(0.70, Math.min(0.95, confidence));
 }
 
 /**

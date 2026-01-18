@@ -3,6 +3,36 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
 
 /**
+ * Safe WebSocket close helper to prevent crashes from invalid codes
+ * CRITICAL: Always use this instead of ws.close() directly
+ */
+function safeClose(ws: WebSocket, code: number | undefined | null = 1000, reason: string | Buffer = ""): void {
+  try {
+    // Ensure code is a valid integer (1000-4999 range)
+    let closeCode = 1000; // Default normal closure
+    if (code != null && Number.isInteger(code) && code >= 1000 && code < 5000) {
+      closeCode = code;
+    } else if (code !== undefined && code !== null) {
+      console.warn(`⚠️ Invalid WebSocket close code: ${code}, using default 1000`);
+    }
+    
+    const closeReason = typeof reason === "string" ? reason : reason.toString("utf8");
+    
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(closeCode, closeReason);
+    }
+  } catch (e) {
+    // Last resort: terminate without throwing
+    console.error("❌ Error in safeClose, terminating:", e);
+    try {
+      ws.terminate();
+    } catch {
+      // Ignore termination errors
+    }
+  }
+}
+
+/**
  * WebSocket proxy for OpenAI Real-Time API
  * This securely handles API key authentication on the backend
  * and proxies WebSocket connections to OpenAI
@@ -39,8 +69,9 @@ export function setupRealtimeProxy(server: Server) {
 
     // Extract model from query params (optional)
     // For transcription, use gpt-4o-realtime-preview (no date suffix needed)
-    const url = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
-    const model = url.searchParams.get("model") || "gpt-4o-realtime-preview";
+    // Model is not used in URL for transcription sessions - it's in transcription_session.update
+    // const url = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
+    // const model = url.searchParams.get("model") || "gpt-4o-realtime-preview";
 
     // Queue for messages that arrive before OpenAI connection is ready
     const messageQueue: Buffer[] = [];
@@ -50,10 +81,10 @@ export function setupRealtimeProxy(server: Server) {
     let audioChunkCount = 0;
     let totalAudioBytes = 0;
     let configMessageSent = false;
-    let lastConfigMessage: any = null;
-    let receivedEventTypes: string[] = [];
-    let micPermissionStatus = 'unknown'; // Will be logged by client
-    let detectedSampleRate: number | null = null;
+    let lastConfigMessage: Record<string, unknown> | null = null;
+    const receivedEventTypes: string[] = [];
+    const micPermissionStatus = 'unknown'; // Will be logged by client
+    const detectedSampleRate: number | null = null;
 
     // For Realtime Transcription sessions, we use API key directly
     // Ephemeral tokens are optional and can cause issues with transcription sessions
@@ -93,10 +124,11 @@ export function setupRealtimeProxy(server: Server) {
     });
 
     // Forward messages from client to OpenAI
-    clientWs.on("message", (data) => {
+    clientWs.on("message", (data: Buffer | string) => {
       // Log ALL client messages for debugging
       try {
         if (typeof data === 'string') {
+          const dataLength = data.length;
           const parsed = JSON.parse(data);
           const messageType = parsed.type || 'unknown';
           
@@ -117,7 +149,7 @@ export function setupRealtimeProxy(server: Server) {
             }
           }
           
-          console.log('📤 Client -> OpenAI:', messageType, messageType === 'input_audio_buffer.append' ? `(chunk #${audioChunkCount}, ${data.length} bytes JSON)` : '');
+          console.log('📤 Client -> OpenAI:', messageType, messageType === 'input_audio_buffer.append' ? `(chunk #${audioChunkCount}, ${dataLength} bytes JSON)` : '');
           
           // Log transcription_session.update fully for debugging (required)
           if (messageType === 'transcription_session.update') {
@@ -148,11 +180,20 @@ export function setupRealtimeProxy(server: Server) {
             }
           }
         } else {
-          console.log('📤 Client -> OpenAI: (binary data,', data.length, 'bytes)');
+          const dataLength = Buffer.isBuffer(data) ? data.length : (data as ArrayBuffer).byteLength;
+          console.log('📤 Client -> OpenAI: (binary data,', dataLength, 'bytes)');
         }
       } catch (e) {
         // Not JSON, probably binary - log it
-        console.log('📤 Client -> OpenAI: (non-JSON,', data.length, 'bytes)');
+        let dataLength = 0;
+        if (Buffer.isBuffer(data)) {
+          dataLength = data.length;
+        } else if (typeof data === 'string') {
+          dataLength = data.length;
+        } else if (data && typeof data === 'object' && 'byteLength' in data) {
+          dataLength = (data as { byteLength: number }).byteLength;
+        }
+        console.log('📤 Client -> OpenAI: (non-JSON,', dataLength, 'bytes)');
       }
 
       if (openaiWsReady && openaiWs.readyState === WebSocket.OPEN) {
@@ -165,7 +206,8 @@ export function setupRealtimeProxy(server: Server) {
         }
       } else {
         // Queue message until OpenAI connection is ready
-        messageQueue.push(data);
+        const bufferData = typeof data === 'string' ? Buffer.from(data) : data;
+        messageQueue.push(bufferData);
         if (!openaiWsReady) {
           console.log('⏳ Queuing message (OpenAI WebSocket connecting..., queue size:', messageQueue.length, ')');
         } else {
@@ -174,15 +216,15 @@ export function setupRealtimeProxy(server: Server) {
       }
     });
 
-    // Track if we've received session.created from OpenAI
-    let sessionCreatedReceived = false;
+    // Track if we've received session.created from OpenAI (may not happen for transcription sessions)
+    // let sessionCreatedReceived = false;
     
     // Forward messages from OpenAI to client
-    openaiWs.on("message", (data: Buffer | string, isBinary: boolean) => {
+    openaiWs.on("message", (data: Buffer | string, _isBinary: boolean) => {
       // CRITICAL: Decode binary messages - OpenAI sends JSON as binary
       // Convert Buffer to string and parse JSON to reveal actual error messages
       let textData: string;
-      let parsed: any = null;
+      let parsed: Record<string, unknown> | null = null;
       
       try {
         if (Buffer.isBuffer(data)) {
@@ -200,35 +242,38 @@ export function setupRealtimeProxy(server: Server) {
         console.log(textData);
         
         // Try to parse as JSON
-        parsed = JSON.parse(textData);
+        parsed = JSON.parse(textData) as Record<string, unknown>;
         
-        if (parsed.type) {
-          const eventType = parsed.type;
+        if (parsed && parsed.type) {
+          const eventType = String(parsed.type);
           receivedEventTypes.push(eventType);
           
           // Log RAW JSON for all events (as required)
           console.log('📨 OpenAI -> Client: DECODED event JSON:');
           console.log(JSON.stringify(parsed, null, 2));
           
-          const hasError = !!parsed.error;
-          const hasTranscript = !!parsed.transcript || !!parsed.item?.input_audio_transcription?.transcript;
+          const errorObj = parsed.error as Record<string, unknown> | undefined;
+          const hasError = !!errorObj;
+          const itemObj = parsed.item as { input_audio_transcription?: { transcript?: string } } | undefined;
+          // const hasTranscript = !!(parsed.transcript as string | undefined) || !!itemObj?.input_audio_transcription?.transcript;
           
           // Extract transcript if available
           let transcriptText: string | null = null;
-          if (parsed.transcript) {
-            transcriptText = parsed.transcript;
-          } else if (parsed.item?.input_audio_transcription?.transcript) {
-            transcriptText = parsed.item.input_audio_transcription.transcript;
+          const transcript = parsed.transcript as string | undefined;
+          if (transcript) {
+            transcriptText = transcript;
+          } else if (itemObj?.input_audio_transcription?.transcript) {
+            transcriptText = itemObj.input_audio_transcription.transcript;
           }
           
           // Log summary line
           console.log(`\n📌 Event type: ${eventType}`);
           if (hasError) {
             console.error('❌ ERROR DETECTED in event:');
-            console.error('   Error code:', parsed.error?.code);
-            console.error('   Error type:', parsed.error?.type);
-            console.error('   Error message:', parsed.error?.message);
-            console.error('   Error param:', parsed.error?.param);
+            console.error('   Error code:', errorObj?.code);
+            console.error('   Error type:', errorObj?.type);
+            console.error('   Error message:', errorObj?.message);
+            console.error('   Error param:', errorObj?.param);
           }
           if (transcriptText) {
             console.log(`📝 Transcript: "${transcriptText}"`);
@@ -251,12 +296,12 @@ export function setupRealtimeProxy(server: Server) {
             
             // Track when session.created arrives (may not happen for transcription sessions)
             if (eventType === 'session.created') {
-              sessionCreatedReceived = true;
+              // sessionCreatedReceived = true;
               console.log('✅ Received session.created from OpenAI - now safe to send queued messages');
               
               // Clear timeout since we got session.created
-              if ((openaiWs as any)._sessionCreatedTimeout) {
-                clearTimeout((openaiWs as any)._sessionCreatedTimeout);
+              if ((openaiWs as WebSocket & { _sessionCreatedTimeout?: NodeJS.Timeout })._sessionCreatedTimeout) {
+                clearTimeout((openaiWs as WebSocket & { _sessionCreatedTimeout?: NodeJS.Timeout })._sessionCreatedTimeout);
               }
               
               // Now send any queued messages (like session.update from client)
@@ -380,7 +425,7 @@ export function setupRealtimeProxy(server: Server) {
       // Only close client if OpenAI connection fails - don't close on normal errors
       if (openaiWs.readyState !== WebSocket.OPEN && openaiWs.readyState !== WebSocket.CLOSING) {
         console.error("   Closing client connection due to OpenAI error");
-        clientWs.close(1011, "OpenAI connection error");
+        safeClose(clientWs, 1011, "OpenAI connection error");
       }
     });
 
@@ -412,8 +457,8 @@ export function setupRealtimeProxy(server: Server) {
       console.log('');
       
       // Clear session timeout if still pending
-      if ((openaiWs as any)._sessionCreatedTimeout) {
-        clearTimeout((openaiWs as any)._sessionCreatedTimeout);
+      if ((openaiWs as WebSocket & { _sessionCreatedTimeout?: NodeJS.Timeout })._sessionCreatedTimeout) {
+        clearTimeout((openaiWs as WebSocket & { _sessionCreatedTimeout?: NodeJS.Timeout })._sessionCreatedTimeout);
       }
       
       // Log specific close codes for debugging
@@ -452,7 +497,9 @@ export function setupRealtimeProxy(server: Server) {
       openaiWsReady = false;
       if (clientWs.readyState === WebSocket.OPEN) {
         console.log(`   Forwarding close to client (code ${code})`);
-        clientWs.close(code, reason);
+        // CRITICAL: Use safeClose - client close code might be 1005 (undefined) which is invalid
+        const validCode = Number.isInteger(code) && code >= 1000 && code < 5000 ? code : 1000;
+        safeClose(clientWs, validCode, reason);
       } else {
         console.log(`   Client already closed (state: ${clientWs.readyState}), not forwarding`);
       }
@@ -461,7 +508,7 @@ export function setupRealtimeProxy(server: Server) {
     clientWs.on("error", (error) => {
       console.error("Client WebSocket error:", error);
       if (openaiWs.readyState === WebSocket.OPEN || openaiWs.readyState === WebSocket.CONNECTING) {
-        openaiWs.close(1011, "Client error");
+        safeClose(openaiWs, 1011, "Client error");
       }
     });
 
@@ -473,12 +520,15 @@ export function setupRealtimeProxy(server: Server) {
       
       // Only close OpenAI connection if it's still open or connecting
       // Don't close if it's already closed or closing - that could cause issues
+      // CRITICAL: Use safeClose - client close code might be 1005 (undefined) which is invalid
       if (openaiWs.readyState === WebSocket.OPEN) {
         console.log(`   Closing OpenAI connection (clean close)`);
-        openaiWs.close(code, reason);
+        const validCode = Number.isInteger(code) && code >= 1000 && code < 5000 ? code : 1000;
+        safeClose(openaiWs, validCode, reason);
       } else if (openaiWs.readyState === WebSocket.CONNECTING) {
         console.log(`   Closing OpenAI connection (still connecting)`);
-        openaiWs.close(code, reason);
+        const validCode = Number.isInteger(code) && code >= 1000 && code < 5000 ? code : 1000;
+        safeClose(openaiWs, validCode, reason);
       } else {
         console.log(`   OpenAI connection already closed/closing (state: ${openaiWs.readyState}), not closing again`);
       }

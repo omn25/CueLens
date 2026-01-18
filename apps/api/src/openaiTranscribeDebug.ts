@@ -44,9 +44,9 @@ const ws = new WebSocket(OPENAI_WS_URL, {
 });
 
 let configSent = false;
-let audioChunkCount = 0;
-let totalAudioBytes = 0;
-let receivedEvents: string[] = [];
+const audioChunkCount = 0;
+const totalAudioBytes = 0;
+const receivedEvents: string[] = [];
 
 ws.on('open', () => {
   console.log('✅ Connected to OpenAI WebSocket');

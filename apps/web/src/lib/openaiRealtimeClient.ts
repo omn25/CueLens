@@ -19,7 +19,7 @@
  * 
  * Audio Format:
  * - PCM16 mono, little-endian
- * - Sample rate: 24000 Hz (AudioContext automatically resamples if mic is different rate)
+ * - Sample rate: 16000 Hz (AudioContext automatically resamples if mic is different rate)
  * - Base64-encoded in input_audio_buffer.append messages
  * 
  * Valid Transcription Models:
@@ -304,27 +304,27 @@ export class OpenAIRealtimeClient {
         throw new Error('No audio tracks available');
       }
       
-      // OpenAI Realtime Transcription requires PCM16 mono audio at 24kHz
-      // Create AudioContext at 24kHz - browser will resample mic input automatically
+      // OpenAI Realtime Transcription requires PCM16 mono audio at 16kHz
+      // Create AudioContext at 16kHz - browser will resample mic input automatically
       // However, we verify the actual sample rate and log it for debugging
-      this.audioContext = new AudioContext({ sampleRate: 24000 });
+      this.audioContext = new AudioContext({ sampleRate: 16000 });
       
       const actualSampleRate = this.audioContext.sampleRate;
       console.log('🎤 AudioContext created');
-      console.log('   Target sample rate: 24000 Hz');
+      console.log('   Target sample rate: 16000 Hz');
       console.log('   Actual sample rate:', actualSampleRate, 'Hz');
       
-      if (actualSampleRate !== 24000) {
-        console.warn('⚠️ WARNING: AudioContext sample rate is', actualSampleRate, 'Hz, not 24kHz');
-        console.warn('   Browser may not support 24kHz - audio will be resampled by browser or may fail');
+      if (actualSampleRate !== 16000) {
+        console.warn('⚠️ WARNING: AudioContext sample rate is', actualSampleRate, 'Hz, not 16kHz');
+        console.warn('   Browser may not support 16kHz - audio will be resampled by browser or may fail');
       }
       
       const source = this.audioContext.createMediaStreamSource(stream);
       
       // Use ScriptProcessorNode (deprecated but works reliably)
-      // Buffer size: 4096 samples at 24kHz = ~170ms chunks
-      // Smaller buffers (2048) = ~85ms chunks for lower latency
-      // Larger buffers (8192) = ~341ms chunks for better efficiency
+      // Buffer size: 4096 samples at 16kHz = ~256ms chunks
+      // Smaller buffers (2048) = ~128ms chunks for lower latency
+      // Larger buffers (8192) = ~512ms chunks for better efficiency
       // We use 4096 as a balance
       const bufferSize = 4096;
       this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
@@ -355,9 +355,9 @@ export class OpenAIRealtimeClient {
         const inputData = e.inputBuffer.getChannelData(0);
         const sampleRate = e.inputBuffer.sampleRate;
         
-        // Verify sample rate matches expected (should be 24kHz after browser resampling)
-        if (sampleRate !== 24000 && audioChunkCount === 0) {
-          console.warn('⚠️ WARNING: Input buffer sample rate is', sampleRate, 'Hz, not 24kHz');
+        // Verify sample rate matches expected (should be 16kHz after browser resampling)
+        if (sampleRate !== 16000 && audioChunkCount === 0) {
+          console.warn('⚠️ WARNING: Input buffer sample rate is', sampleRate, 'Hz, not 16kHz');
           console.warn('   Browser will need to resample this audio');
         }
         
@@ -447,21 +447,50 @@ export class OpenAIRealtimeClient {
   /**
    * Handle OpenAI message - decode, log, check for config ack, handle errors
    */
-  private handleOpenAIMessage(data: any, rawText: string): void {
+  private handleOpenAIMessage(data: any, _rawText: string): void {
     // Log ALL incoming messages (raw JSON)
     console.log('\n📨 RAW OpenAI message received:');
     console.log(JSON.stringify(data, null, 2));
     
     if (data.type) {
-      console.log(`📌 Event type: ${data.type}`);
+      const eventType = data.type;
+      console.log(`📌 Event type: ${eventType}`);
+      
+      // Log session lifecycle events
+      if (eventType === 'transcription_session.created') {
+        console.log('✅ transcription_session.created - session is ready');
+        console.log('   Session ID:', data.session_id || 'not provided');
+        console.log('   input_audio_transcription:', data.input_audio_transcription ? 'configured' : 'null');
+      } else if (eventType === 'transcription_session.updated') {
+        console.log('✅ transcription_session.updated - config applied');
+      }
+      
+      // Log audio buffer events
+      if (eventType === 'input_audio_buffer.committed') {
+        console.log('✅ input_audio_buffer.committed - audio chunk processed by server');
+      } else if (eventType === 'input_audio_buffer.speech_started') {
+        console.log('🎤 input_audio_buffer.speech_started - speech detected');
+      } else if (eventType === 'input_audio_buffer.speech_stopped') {
+        console.log('🔇 input_audio_buffer.speech_stopped - speech ended');
+      }
+      
+      // Log transcription delta events
+      if (eventType.includes('transcript') && eventType.includes('delta')) {
+        const delta = data.delta || data.transcript || '';
+        console.log(`📝 Transcript delta: "${delta}"`);
+        if (delta && this.config.onTranscript) {
+          this.config.onTranscript(delta, false);
+        }
+        return;
+      }
       
       // CRITICAL: Check for config acknowledgment
       // Any server event after config indicates the session exists
       if (!this.configAcked && this.sessionConfigSent) {
-        if (data.type === 'transcription_session.created' || 
-            data.type === 'transcription_session.updated' ||
-            data.type === 'session.created' ||
-            data.type === 'session.updated') {
+        if (eventType === 'transcription_session.created' || 
+            eventType === 'transcription_session.updated' ||
+            eventType === 'session.created' ||
+            eventType === 'session.updated') {
           this.configAcked = true;
           console.log('✅ Config acknowledged - safe to start audio streaming');
           
@@ -474,10 +503,11 @@ export class OpenAIRealtimeClient {
       }
       
       // Handle errors with retry logic
-      if (data.type === 'error') {
+      if (eventType === 'error') {
         const errorCode = data.error?.code;
         const errorType = data.error?.type;
         const errorMsg = data.error?.message || 'Unknown error';
+        const errorParam = data.error?.param;
         const isServerError = errorType === 'server_error' || errorCode === 'server_error' || 
                              errorMsg.toLowerCase().includes('server') ||
                              errorMsg.toLowerCase().includes('processing');
@@ -486,6 +516,8 @@ export class OpenAIRealtimeClient {
         console.error('   Error code:', errorCode);
         console.error('   Error type:', errorType);
         console.error('   Error message:', errorMsg);
+        console.error('   Error param:', errorParam);
+        console.error('   Session ID:', data.session_id || 'not provided');
         console.error('   Full error object:', JSON.stringify(data, null, 2));
         console.error('');
         
@@ -501,31 +533,31 @@ export class OpenAIRealtimeClient {
         return;
       }
       
-      // Handle transcription events
+      // Handle transcription completion events
       let transcriptText: string | null = null;
       let isFinal = false;
       
-      if (data.type === 'conversation.item.input_audio_transcription.completed') {
+      if (eventType === 'conversation.item.input_audio_transcription.completed') {
         transcriptText = data.transcript || data.item?.input_audio_transcription?.transcript || data.transcription?.transcript || data.text;
         isFinal = true;
-        console.log('✅ FINAL transcript received:', transcriptText);
-      } else if (data.type.includes('transcription.completed') || data.type.includes('transcription.done')) {
+        console.log('✅ FINAL transcript received (conversation.item.input_audio_transcription.completed):', transcriptText);
+      } else if (eventType.includes('transcription.completed') || eventType.includes('transcription.done')) {
         transcriptText = data.transcript || data.text || data.item?.transcript;
         isFinal = true;
         console.log('✅ FINAL transcript received:', transcriptText);
-      } else if (data.type.includes('delta')) {
-        // Partial transcription
-        const partialText = data.transcript || data.text || data.delta || '';
-        if (partialText && this.config.onTranscript) {
-          this.config.onTranscript(partialText, false);
-        }
-        return;
+      } else if (eventType === 'transcript.text.done') {
+        transcriptText = data.transcript || data.text || '';
+        isFinal = true;
+        console.log('✅ FINAL transcript received (transcript.text.done):', transcriptText);
       }
       
       // Send final transcript to callback
       if (transcriptText && isFinal && this.config.onTranscript) {
         this.config.onTranscript(transcriptText, true);
       }
+    } else {
+      // Message without type field
+      console.log('📨 OpenAI message without type field:', JSON.stringify(data, null, 2));
     }
   }
 
@@ -627,127 +659,5 @@ export class OpenAIRealtimeClient {
    */
   isConnectedToService(): boolean {
     return this.isConnected && this.ws?.readyState === WebSocket.OPEN;
-  }
-
-  /**
-   * Handle OpenAI message - decode, log, check for config ack, handle errors
-   */
-  private handleOpenAIMessage(data: any, rawText: string): void {
-    // Log ALL incoming messages (raw JSON)
-    console.log('\n📨 RAW OpenAI message received:');
-    console.log(JSON.stringify(data, null, 2));
-    
-    if (data.type) {
-      console.log(`📌 Event type: ${data.type}`);
-      
-      // CRITICAL: Check for config acknowledgment
-      // Any server event after config indicates the session exists
-      if (!this.configAcked && this.sessionConfigSent) {
-        if (data.type === 'transcription_session.created' || 
-            data.type === 'transcription_session.updated' ||
-            data.type === 'session.created' ||
-            data.type === 'session.updated') {
-          this.configAcked = true;
-          console.log('✅ Config acknowledged - safe to start audio streaming');
-          
-          // Now start audio streaming
-          if (this.mediaStream && !this.processor && this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
-            console.log('🎉 Starting audio streaming (config acknowledged)...');
-            this.startAudioStreaming(this.mediaStream);
-          }
-        }
-      }
-      
-      // Handle errors with retry logic
-      if (data.type === 'error') {
-        const errorCode = data.error?.code;
-        const errorType = data.error?.type;
-        const errorMsg = data.error?.message || 'Unknown error';
-        const isServerError = errorType === 'server_error' || errorCode === 'server_error' || 
-                             errorMsg.toLowerCase().includes('server') ||
-                             errorMsg.toLowerCase().includes('processing');
-        
-        console.error('\n❌ OPENAI ERROR EVENT:');
-        console.error('   Error code:', errorCode);
-        console.error('   Error type:', errorType);
-        console.error('   Error message:', errorMsg);
-        console.error('   Full error object:', JSON.stringify(data, null, 2));
-        console.error('');
-        
-        // Retry on server errors
-        if (isServerError && this.retryCount < this.maxRetries) {
-          console.log(`🔄 Server error detected - will retry (attempt ${this.retryCount + 1}/${this.maxRetries})`);
-          this.handleRetry();
-          return;
-        }
-        
-        // Non-retryable errors
-        this.config.onError?.(new Error(errorMsg));
-        return;
-      }
-      
-      // Handle transcription events
-      let transcriptText: string | null = null;
-      let isFinal = false;
-      
-      if (data.type === 'conversation.item.input_audio_transcription.completed') {
-        transcriptText = data.transcript || data.item?.input_audio_transcription?.transcript || data.transcription?.transcript || data.text;
-        isFinal = true;
-        console.log('✅ FINAL transcript received:', transcriptText);
-      } else if (data.type.includes('transcription.completed') || data.type.includes('transcription.done')) {
-        transcriptText = data.transcript || data.text || data.item?.transcript;
-        isFinal = true;
-        console.log('✅ FINAL transcript received:', transcriptText);
-      } else if (data.type.includes('delta')) {
-        // Partial transcription
-        const partialText = data.transcript || data.text || data.delta || '';
-        if (partialText && this.config.onTranscript) {
-          this.config.onTranscript(partialText, false);
-        }
-        return;
-      }
-      
-      // Send final transcript to callback
-      if (transcriptText && isFinal && this.config.onTranscript) {
-        this.config.onTranscript(transcriptText, true);
-      }
-    }
-  }
-
-  /**
-   * Handle retry with exponential backoff
-   */
-  private handleRetry(): void {
-    if (this.retryCount >= this.maxRetries) {
-      console.error('❌ Max retries reached - giving up');
-      this.config.onError?.(new Error('Max retry attempts exceeded'));
-      return;
-    }
-    
-    const delay = this.retryDelays[this.retryCount] || this.retryDelays[this.retryDelays.length - 1];
-    console.log(`⏳ Retrying in ${delay}ms... (attempt ${this.retryCount + 1}/${this.maxRetries})`);
-    
-    this.retryCount++;
-    
-    // Close current connection
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    
-    // Reset state
-    this.isConnected = false;
-    this.configAcked = false;
-    this.sessionConfigSent = false;
-    
-    // Reconnect after delay
-    this.reconnectTimer = setTimeout(() => {
-      if (this.mediaStream) {
-        console.log('🔄 Reconnecting...');
-        this.connect(this.mediaStream).catch((err) => {
-          console.error('❌ Reconnect failed:', err);
-        });
-      }
-    }, delay);
   }
 }

@@ -175,7 +175,7 @@ export default function CaregiverPage() {
           {/* Info message */}
           <div className="glass-panel rounded-xl p-4 border border-primary/20 bg-primary/10">
             <p className="text-primary text-sm">
-              Suggestions are automatically created from speech-to-text transcription. Speak names or relationships (e.g., "Hi mom", "This is John") to generate suggestions.
+              Suggestions are automatically created from speech-to-text transcription. Speak names or relationships (e.g., &quot;Hi mom&quot;, &quot;This is John&quot;) to generate suggestions.
             </p>
           </div>
 

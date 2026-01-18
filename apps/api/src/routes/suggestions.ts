@@ -59,6 +59,10 @@ const ApproveSuggestionSchema = z.object({
  */
 export function approveSuggestionHandler(req: Request, res: Response) {
   const { id } = req.params;
+  if (!id) {
+    res.status(400).json({ error: "Suggestion ID is required" });
+    return;
+  }
   
   const existing = getSuggestion(id);
   if (!existing) {
@@ -84,14 +88,15 @@ export function approveSuggestionHandler(req: Request, res: Response) {
   // If it's an identify_person suggestion, create/update the person
   if (updated.type === "identify_person" && updated.proposed.displayName) {
     const personName = displayName || updated.proposed.displayName;
-    
-    upsertPerson({
-      displayName: personName,
-      relationship: updated.proposed.relationship,
-      photoAssetId: updated.evidence.frameAssetId,
-      remindersEnabled: remindersEnabled ?? false,
-      notes: `Added via suggestion approval from transcript: "${updated.evidence.transcriptSnippet}"`,
-    });
+    if (personName) {
+      upsertPerson({
+        displayName: personName,
+        relationship: updated.proposed.relationship,
+        photoAssetId: updated.evidence.frameAssetId,
+        remindersEnabled: remindersEnabled ?? false,
+        notes: `Added via suggestion approval from transcript: "${updated.evidence.transcriptSnippet}"`,
+      });
+    }
   }
 
   res.json(updated);
@@ -103,6 +108,10 @@ export function approveSuggestionHandler(req: Request, res: Response) {
  */
 export function rejectSuggestionHandler(req: Request, res: Response) {
   const { id } = req.params;
+  if (!id) {
+    res.status(400).json({ error: "Suggestion ID is required" });
+    return;
+  }
   
   const existing = getSuggestion(id);
   if (!existing) {

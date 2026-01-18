@@ -5,7 +5,7 @@ import type { Request, Response } from "express";
  * Creates a transcription session and returns an ephemeral client_secret token
  * for browser/client connections to OpenAI Real-Time API
  */
-export async function createRealtimeSessionHandler(req: Request, res: Response) {
+export async function createRealtimeSessionHandler(_req: Request, res: Response) {
   const openaiApiKey = process.env.OPENAI_API_KEY;
   
   if (!openaiApiKey) {
@@ -46,7 +46,11 @@ export async function createRealtimeSessionHandler(req: Request, res: Response) 
       return;
     }
 
-    const tokenData = await response.json();
+    const tokenData = await response.json() as {
+      value: string;
+      expires_at: number;
+      session?: unknown;
+    };
     
     // Return the ephemeral token (value field) to the frontend
     // This token expires quickly, so it's safe for browser use

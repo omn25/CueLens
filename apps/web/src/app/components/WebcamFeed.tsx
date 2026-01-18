@@ -7,6 +7,7 @@ import type { RoomData } from '@/lib/roomStorage';
 import RoomRecognitionPopup from './RoomRecognitionPopup';
 import { captureFrameFromVideo, uploadFrame } from '@/lib/frameCapture';
 import { OpenAIRealtimeClient } from '@/lib/openaiRealtimeClient';
+import { HTTPSTTClient } from '@/lib/httpSttClient';
 
 export default function WebcamFeed() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -20,9 +21,13 @@ export default function WebcamFeed() {
   const audioStreamRef = useRef<MediaStream | null>(null);
   const visionRef = useRef<{ stop: () => Promise<void> } | null>(null);
   const openaiRealtimeRef = useRef<OpenAIRealtimeClient | null>(null);
+  const httpSttRef = useRef<HTTPSTTClient | null>(null);
   const lastCheckTimeRef = useRef<number>(0);
   const sessionIdRef = useRef<string>(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
   const isConnectingRef = useRef<boolean>(false);
+  
+  // Feature flag: USE_REALTIME_STT=true uses WebSocket realtime, else uses HTTP chunk fallback
+  const useRealtimeSTT = (process.env.NEXT_PUBLIC_USE_REALTIME_STT || 'false').toLowerCase() === 'true';
 
   // Check for room matches
   const checkForRoomMatch = useCallback((description: string) => {
@@ -86,171 +91,181 @@ export default function WebcamFeed() {
           console.log('   Audio track settings:', settings);
           console.log('   Sample rate (if available):', settings.sampleRate || 'not reported');
           
-          // Initialize OpenAI Real-Time API client for streaming STT
-          // Note: API key is handled on backend (OPENAI_API_KEY env var) - not needed here
-          // Prevent double-connection in React strict mode or during remounts
-          if (openaiRealtimeRef.current || isConnectingRef.current) {
-            console.log('⚠️ OpenAI Real-Time client already exists or is connecting, skipping...');
-            console.log('   This can happen in React StrictMode (development only)');
+          // Feature flag: Choose between Realtime WebSocket or HTTP chunk STT
+          console.log(`🎤 STT mode: ${useRealtimeSTT ? 'Realtime WebSocket' : 'HTTP Chunk Fallback'}`);
+          
+          // Check if already connecting
+          if (isConnectingRef.current || openaiRealtimeRef.current || httpSttRef.current) {
+            console.log('⚠️ STT client already exists or is connecting, skipping...');
             return;
           }
           
-          // Check again if component is still mounted
+          // Check if component is still mounted
           if (!isMounted || cleanupCalled) {
-            console.log('⚠️ Component unmounted before OpenAI client initialization, cleaning up...');
+            console.log('⚠️ Component unmounted before STT initialization, cleaning up...');
             audioStream.getTracks().forEach((track) => track.stop());
             return;
           }
           
+          // Common transcript handler
+          const handleTranscript = async (text: string, isFinal: boolean = true) => {
+            if (!isMounted) {
+              console.log('⚠️ Component unmounted, ignoring transcript');
+              return;
+            }
+            
+            // Store transcript in state
+            setTranscripts((prev) => {
+              if (!isFinal) {
+                const lastIsPartial = prev.length > 0 && !prev[prev.length - 1].isFinal;
+                if (lastIsPartial) {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = { text, timestamp: Date.now(), isFinal: false };
+                  return updated;
+                } else {
+                  return [...prev, { text, timestamp: Date.now(), isFinal: false }];
+                }
+              } else {
+                const newTranscripts = [...prev, { text, timestamp: Date.now(), isFinal: true }];
+                return newTranscripts.slice(-20);
+              }
+            });
+            
+            // Only process FINAL transcripts for backend
+            if (!isFinal) return;
+            
+            console.log(`✅ STT transcript (FINAL): ${text}`);
+            
+            // Send to suggestion engine
+            let frameAssetId: string | undefined = undefined;
+            if (videoRef.current) {
+              const frameBase64 = captureFrameFromVideo(videoRef.current);
+              if (frameBase64) {
+                try {
+                  frameAssetId = await uploadFrame(frameBase64);
+                } catch (err) {
+                  console.warn('⚠️ Failed to upload frame:', err);
+                }
+              }
+            }
+            
+            try {
+              const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+              const response = await fetch(`${API_BASE_URL}/transcript`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  transcript: text,
+                  visionEventId: sessionIdRef.current,
+                  frameAssetId,
+                }),
+              });
+              
+              if (response.ok) {
+                const suggestions = await response.json();
+                if (suggestions.length > 0) {
+                  console.log(`✅ Backend created ${suggestions.length} suggestion(s)`);
+                }
+              }
+            } catch (err) {
+              console.error('❌ Error sending transcript:', err);
+            }
+          };
+          
           try {
             isConnectingRef.current = true;
             setConnectionStatus('connecting');
-            // Get model from env, but validate it's a valid transcription model
-            // Default to gpt-4o-mini-transcribe if not set or invalid
-            const envModel = process.env.NEXT_PUBLIC_OPENAI_REALTIME_MODEL;
-            const validTranscriptionModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
-            const transcriptionModel = (envModel && validTranscriptionModels.includes(envModel)) 
-              ? envModel as any 
-              : undefined; // undefined will use default (MINI)
             
-            if (envModel && !validTranscriptionModels.includes(envModel)) {
-              console.warn(`⚠️ Invalid NEXT_PUBLIC_OPENAI_REALTIME_MODEL: "${envModel}"`);
-              console.warn(`   Must be one of: ${validTranscriptionModels.join(', ')}`);
-              console.warn(`   Using default: gpt-4o-mini-transcribe`);
-            }
-            
-            const openaiRealtime = new OpenAIRealtimeClient({
-              model: transcriptionModel, // Will use default (gpt-4o-mini-transcribe) if undefined
-              onTranscript: async (text: string, isFinal: boolean) => {
-                // Check if component is still mounted before processing transcript
-                if (!isMounted) {
-                  console.log('⚠️ Component unmounted, ignoring transcript');
-                  return;
-                }
-                // Store transcript in state for UI display (both partial and final)
-                setTranscripts((prev) => {
-                  // If it's partial, replace the last partial transcript if it exists
-                  // If it's final, add a new entry
-                  if (!isFinal) {
-                    // Update last partial transcript or add new one
-                    const lastIsPartial = prev.length > 0 && !prev[prev.length - 1].isFinal;
-                    if (lastIsPartial) {
-                      // Replace last partial with new partial
-                      const updated = [...prev];
-                      updated[updated.length - 1] = { text, timestamp: Date.now(), isFinal: false };
-                      return updated;
-                    } else {
-                      // Add new partial transcript
-                      return [...prev, { text, timestamp: Date.now(), isFinal: false }];
-                    }
-                  } else {
-                    // Final transcript - add new entry
-                    const newTranscripts = [...prev, { text, timestamp: Date.now(), isFinal: true }];
-                    // Keep only last 20 transcripts to avoid memory issues
-                    return newTranscripts.slice(-20);
-                  }
-                });
-
-                // Only process FINAL transcript segments for backend logic (ignore partials)
-                if (!isFinal) {
-                  return;
-                }
-
-                console.log('✅ OpenAI Real-Time transcript (FINAL):', text);
-                console.log('📤 Sending final transcript to backend for suggestion detection...');
-                
-                // Always send final transcripts to backend - backend will handle detection
-                // Capture frame to include with transcript (backend decides if it's needed)
-                let frameAssetId: string | undefined = undefined;
-                
-                if (videoRef.current) {
-                  const frameBase64 = captureFrameFromVideo(videoRef.current);
-                  if (frameBase64) {
-                    try {
-                      // Upload frame and get frameAssetId
-                      frameAssetId = await uploadFrame(frameBase64);
-                      console.log('📸 Frame uploaded, frameAssetId:', frameAssetId);
-                    } catch (err) {
-                      console.warn('⚠️ Failed to upload frame, continuing without it:', err);
-                    }
-                  } else {
-                    console.warn('⚠️ Frame capture returned null - continuing without frame');
-                  }
-                } else {
-                  console.warn('⚠️ Video ref not available for frame capture - continuing without frame');
-                }
-                
-                // Send transcript to backend - backend suggestion engine handles all detection
-                try {
-                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
-                  const response = await fetch(`${API_BASE_URL}/transcript`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      transcript: text,
-                      visionEventId: sessionIdRef.current,
-                      frameAssetId: frameAssetId,
-                    }),
-                  });
-
-                  if (response.ok) {
-                    const suggestions = await response.json();
-                    if (suggestions.length > 0) {
-                      console.log(`✅ Backend created ${suggestions.length} suggestion(s) from transcript`);
-                      console.log('   Suggestions:', suggestions.map((s: any) => ({ type: s.type, text: s.text.substring(0, 50) })));
-                    } else {
-                      console.log('ℹ️ No suggestions generated from this transcript');
-                    }
-                  } else {
-                    const errorText = await response.text();
-                    console.error('❌ Failed to process transcript:', response.status, errorText);
-                  }
-                } catch (err) {
-                  console.error('❌ Error sending transcript to backend:', err);
-                }
-              },
-              onError: (error) => {
-                console.error('OpenAI Real-Time error:', error);
-                setConnectionStatus('disconnected');
-                setError(`OpenAI Real-Time error: ${error.message}`);
-              },
-            });
-
-                // Check if still mounted before setting ref
-                if (!isMounted || cleanupCalled) {
-                  console.log('⚠️ Component unmounted during OpenAI connection, disconnecting...');
-                  openaiRealtime.disconnect();
-                  return;
-                }
-                
-                openaiRealtimeRef.current = openaiRealtime;
-                
-                // Connect to OpenAI Real-Time API
-                await openaiRealtime.connect(audioStream);
-                
-                // Final check before marking as connected
-                if (!isMounted || cleanupCalled) {
-                  console.log('⚠️ Component unmounted immediately after OpenAI connection, disconnecting...');
-                  openaiRealtime.disconnect();
-                  return;
-                }
-                
-                console.log('✅ OpenAI Real-Time connected and streaming');
-                setConnectionStatus('connected');
-                isConnectingRef.current = false;
-              } catch (openaiError) {
-                console.error('❌ Failed to initialize OpenAI Real-Time API:', openaiError);
-                if (isMounted && !cleanupCalled) {
-                  setConnectionStatus('disconnected');
-                }
-                isConnectingRef.current = false;
-                // Continue without OpenAI if it fails
+            if (useRealtimeSTT) {
+              // Use Realtime WebSocket STT
+              // Get model from env, but validate it's a valid transcription model
+              // Default to gpt-4o-mini-transcribe if not set or invalid
+              const envModel = process.env.NEXT_PUBLIC_OPENAI_REALTIME_MODEL;
+              const validTranscriptionModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
+              const transcriptionModel = (envModel && validTranscriptionModels.includes(envModel)) 
+                ? envModel as any 
+                : undefined; // undefined will use default (MINI)
+              
+              if (envModel && !validTranscriptionModels.includes(envModel)) {
+                console.warn(`⚠️ Invalid NEXT_PUBLIC_OPENAI_REALTIME_MODEL: "${envModel}"`);
+                console.warn(`   Must be one of: ${validTranscriptionModels.join(', ')}`);
+                console.warn(`   Using default: gpt-4o-mini-transcribe`);
               }
+              
+              const openaiRealtime = new OpenAIRealtimeClient({
+                model: transcriptionModel,
+                onTranscript: handleTranscript,
+                onError: (error) => {
+                  console.error('OpenAI Real-Time error:', error);
+                  setConnectionStatus('disconnected');
+                  setError(`OpenAI Real-Time error: ${error.message}`);
+                },
+              });
+
+              if (!isMounted || cleanupCalled) {
+                openaiRealtime.disconnect();
+                return;
+              }
+              
+              openaiRealtimeRef.current = openaiRealtime;
+              await openaiRealtime.connect(audioStream);
+              
+              if (!isMounted || cleanupCalled) {
+                openaiRealtime.disconnect();
+                return;
+              }
+              
+              console.log('✅ OpenAI Real-Time connected and streaming');
+              setConnectionStatus('connected');
             } else {
-              console.warn('⚠️ No audio tracks found in media stream');
+              // Use HTTP Chunk STT fallback
+              const httpStt = new HTTPSTTClient({
+                onTranscript: (text) => handleTranscript(text, true),
+                onError: (error) => {
+                  console.error('HTTP STT error:', error);
+                  setConnectionStatus('disconnected');
+                  setError(`HTTP STT error: ${error.message}`);
+                },
+                chunkDurationMs: 2500, // 2.5 seconds
+              });
+              
+              // Set frame capture callback
+              httpStt.setFrameCaptureCallback(() => {
+                if (videoRef.current) {
+                  return captureFrameFromVideo(videoRef.current);
+                }
+                return null;
+              });
+              
+              if (!isMounted || cleanupCalled) {
+                httpStt.stop();
+                return;
+              }
+              
+              httpSttRef.current = httpStt;
+              await httpStt.start(audioStream);
+              
+              if (!isMounted || cleanupCalled) {
+                httpStt.stop();
+                return;
+              }
+              
+              console.log('✅ HTTP STT started (chunked recording)');
+              setConnectionStatus('connected');
             }
+            
+            isConnectingRef.current = false;
+          } catch (sttError) {
+            console.error(`❌ Failed to initialize STT (${useRealtimeSTT ? 'Realtime' : 'HTTP'}):`, sttError);
+            if (isMounted && !cleanupCalled) {
+              setConnectionStatus('disconnected');
+            }
+            isConnectingRef.current = false;
+            // Continue without STT if it fails
+          }
+        } else {
+          console.warn('⚠️ No audio tracks found in media stream');
+        }
 
         // Initialize Overshoot SDK after video is ready
         // CRITICAL: Overshoot is OPTIONAL - failures should NOT kill webcam/mic
@@ -348,27 +363,24 @@ export default function WebcamFeed() {
       // The WS connection should stay alive across Fast Refresh
       // If you need to explicitly stop, add a "Stop" button that calls disconnect()
       
-      // 1. OpenAI Real-Time client - DON'T disconnect on cleanup in dev mode
-      // Keep connection alive across Fast Refresh
-      // Only disconnect on explicit stop or page unload
+      // 1. STT clients cleanup
       if (openaiRealtimeRef.current) {
         const ws = (openaiRealtimeRef.current as any).ws;
         const wsState = ws?.readyState;
-        console.log('   OpenAI WS state:', wsState, '(OPEN=1, CLOSING=2, CLOSED=3)');
-        
-        // Only disconnect if WS is already closed/closing, or on actual page unload
         if (wsState === WebSocket.CLOSED || wsState === WebSocket.CLOSING) {
-          console.log('   WS already closed/closing, cleaning up ref only');
           openaiRealtimeRef.current = null;
         } else {
-          console.log('⚠️ Keeping WS connection alive (not disconnecting on cleanup)');
-          console.log('   This prevents Fast Refresh from killing the connection');
-          console.log('   Connection will persist across dev hot reloads');
-          // Don't disconnect - keep ref alive
-          // The WS will close naturally if page unloads or component actually unmounts
+          // Keep alive in dev mode to prevent Fast Refresh killing connection
+          console.log('⚠️ Keeping Realtime WS alive (dev mode)');
         }
-        isConnectingRef.current = false;
       }
+      
+      if (httpSttRef.current) {
+        httpSttRef.current.stop();
+        httpSttRef.current = null;
+      }
+      
+      isConnectingRef.current = false;
       
       // 2. Stop vision stream (non-blocking, won't affect WS)
       if (visionRef.current) {

@@ -41,6 +41,11 @@ export function uploadFrameHandler(req: Request, res: Response) {
 export function getFrameHandler(req: Request, res: Response) {
   const { id } = req.params;
 
+  if (!id) {
+    res.status(400).json({ error: "Frame ID is required" });
+    return;
+  }
+
   const frame = frames.get(id);
   if (!frame) {
     res.status(404).json({ error: "Frame not found" });
