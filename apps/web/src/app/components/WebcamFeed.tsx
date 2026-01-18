@@ -130,7 +130,6 @@ export default function WebcamFeed() {
   // Use Overshoot's stream or fallback to direct webcam for video display (stable)
   useEffect(() => {
     let mounted = true;
-    let checkInterval: ReturnType<typeof setInterval> | null = null;
 
     const updateVideoStream = async () => {
       if (!mounted || !videoRef.current || isInitializingRef.current) return;
@@ -140,6 +139,46 @@ export default function WebcamFeed() {
       const currentStream = videoRef.current.srcObject as MediaStream | null;
       const currentStreamId = currentStream?.id || null;
 
+      // IMPORTANT: If we already have a working stream, preserve it!
+      // Only switch streams if we really need to (prevents camera from turning off)
+      if (currentStream && currentStream.active && currentStream.getVideoTracks().length > 0) {
+        const videoTrack = currentStream.getVideoTracks()[0];
+        if (videoTrack.readyState === 'live') {
+          // Stream is active and working - don't touch it unless we need to switch to Overshoot
+          if (overshootStream && overshootStream.id !== currentStreamId && lastStreamIdRef.current !== overshootStream.id) {
+            // Only switch if we have a different Overshoot stream
+            isInitializingRef.current = true;
+            console.log('[WebcamFeed] ✅ Switching to Overshoot stream');
+
+            // Stop direct webcam stream if we have Overshoot stream
+            if (directWebcamStreamRef.current && directWebcamStreamRef.current.id !== overshootStream.id) {
+              directWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
+              directWebcamStreamRef.current = null;
+            }
+
+            try {
+              videoRef.current.srcObject = overshootStream;
+              await videoRef.current.play();
+              streamRef.current = overshootStream;
+              lastStreamIdRef.current = overshootStream.id;
+              setIsStreaming(true);
+              setError(null);
+            } catch (err) {
+              console.error('[WebcamFeed] Error setting stream:', err);
+            } finally {
+              isInitializingRef.current = false;
+            }
+          } else {
+            // Stream is working fine - ensure it's playing
+            if (videoRef.current.paused) {
+              videoRef.current.play().catch(console.error);
+            }
+          }
+          return; // Preserve existing stream
+        }
+      }
+
+      // No active stream or stream is inactive - need to get one
       if (overshootStream) {
         const overshootStreamId = overshootStream.id;
 
@@ -213,28 +252,19 @@ export default function WebcamFeed() {
       }
     };
 
-    // Initial setup - try once
+    // Initial setup and update when visionActive changes
     updateVideoStream();
-
-    // Check periodically but less frequently to avoid flickering
-    checkInterval = setInterval(() => {
-      if (mounted && !isInitializingRef.current) {
-        updateVideoStream();
-      }
-    }, 3000); // every 3s
 
     return () => {
       mounted = false;
       isInitializingRef.current = false;
-      if (checkInterval) clearInterval(checkInterval);
 
-      // Clean up direct webcam stream if it exists
-      if (directWebcamStreamRef.current) {
-        directWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
-        directWebcamStreamRef.current = null;
-      }
+      // DON'T stop streams in cleanup - let them persist across renders
+      // Only cleanup direct webcam stream if component is unmounting entirely
+      // (We'll let React handle unmount detection - this cleanup only runs on unmount)
     };
-  }, [visionActive, getMediaStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visionActive]); // Only re-run when visionActive actually changes
 
   // STT effect (audio-only). Keeps vision/video logic separate.
   useEffect(() => {
@@ -433,7 +463,8 @@ export default function WebcamFeed() {
         className="absolute inset-0 w-full h-full object-cover"
         style={{ transform: 'scaleX(-1)' }} // Mirror the video
         onLoadedMetadata={() => {
-          if (videoRef.current) {
+          // Only play if not already playing to prevent flickering
+          if (videoRef.current && videoRef.current.paused) {
             videoRef.current.play().catch(console.error);
           }
         }}

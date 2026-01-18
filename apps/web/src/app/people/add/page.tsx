@@ -22,43 +22,92 @@ export default function AddPersonPage() {
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const isInitializingRef = useRef(false);
 
   const stopCamera = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setStream(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-  }, [stream]);
-
-  const startCamera = useCallback(async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-      });
-      setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-    } catch (err) {
-      console.error('Error accessing camera:', err);
-      setError('Unable to access camera. Please check permissions.');
-    }
+    setStream(null);
   }, []);
 
   // Initialize camera on step 2
   useEffect(() => {
-    if (step === 2) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    return () => {
-      stopCamera();
+    let mounted = true;
+
+    const initializeCamera = async () => {
+      if (step === 2) {
+        // Don't re-initialize if we already have an active stream
+        if (streamRef.current && videoRef.current?.srcObject) {
+          const currentStream = videoRef.current.srcObject as MediaStream;
+          if (currentStream.active && currentStream.getVideoTracks().length > 0) {
+            const videoTrack = currentStream.getVideoTracks()[0];
+            if (videoTrack.readyState === 'live') {
+              // Stream is already active - just ensure it's playing
+              if (videoRef.current.paused) {
+                videoRef.current.play().catch(console.error);
+              }
+              return; // Preserve existing stream
+            }
+          }
+        }
+
+        // Only initialize if not already initializing
+        if (isInitializingRef.current) return;
+
+        // Don't create new stream if one already exists
+        if (streamRef.current) return;
+
+        isInitializingRef.current = true;
+        try {
+          const mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+          });
+
+          if (!mounted) {
+            mediaStream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+
+          streamRef.current = mediaStream;
+          setStream(mediaStream);
+          if (videoRef.current) {
+            videoRef.current.srcObject = mediaStream;
+            await videoRef.current.play();
+          }
+        } catch (err) {
+          console.error('Error accessing camera:', err);
+          if (mounted) {
+            setError('Unable to access camera. Please check permissions.');
+          }
+        } finally {
+          if (mounted) {
+            isInitializingRef.current = false;
+          }
+        }
+      } else {
+        // Step is not 2 - stop camera
+        stopCamera();
+      }
     };
-  }, [step, startCamera, stopCamera]);
+
+    initializeCamera();
+
+    return () => {
+      mounted = false;
+      // Only stop camera on unmount, not when dependencies change
+      // This prevents flickering when step changes
+      if (step !== 2) {
+        stopCamera();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]); // Only depend on step, not callbacks
 
   const capturePhoto = () => {
     if (!videoRef.current) return;

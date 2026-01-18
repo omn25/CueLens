@@ -88,10 +88,21 @@ export default function RoomScanning({ roomName, onComplete, onCancel: _onCancel
       await vision.start();
 
       // Get the media stream from Overshoot and display it
+      // Only switch if it's different from what we already have (prevents flickering)
       const mediaStream = vision.getMediaStream();
       if (mediaStream && videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.play();
+        const currentStream = videoRef.current.srcObject as MediaStream | null;
+        // Only update if stream actually changed (prevents unnecessary updates)
+        if (!currentStream || currentStream.id !== mediaStream.id) {
+          videoRef.current.srcObject = mediaStream;
+          videoRef.current.play();
+          
+          // Stop the direct webcam stream now that we're using Overshoot's stream
+          if (streamRef.current && streamRef.current.id !== mediaStream.id) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = mediaStream;
+          }
+        }
       }
 
       // Start scanning timer

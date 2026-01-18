@@ -24,6 +24,7 @@ export const SuggestionSchema = z.object({
     transcriptSnippet: z.string().optional(),
     frameAssetId: z.string().optional(),
     confidence: z.number().optional(),
+    duplicateFlag: z.boolean().optional(), // Flag if uncertain if this is a duplicate person
   }),
 });
 
@@ -49,6 +50,7 @@ export const SuggestionCreateSchema = z.object({
     transcriptSnippet: z.string().optional(),
     frameAssetId: z.string().optional(),
     confidence: z.number().optional(),
+    duplicateFlag: z.boolean().optional(), // Flag if uncertain if this is a duplicate person
   }),
 });
 

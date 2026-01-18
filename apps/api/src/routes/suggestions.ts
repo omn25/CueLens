@@ -10,6 +10,11 @@ import {
 } from "../store/suggestionsStore.js";
 import { upsertPerson } from "../store/peopleStore.js";
 
+// Helper function to convert string to title case
+function toTitleCase(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
 /**
  * POST /suggestions
  * Create a new suggestion
@@ -89,13 +94,50 @@ export function approveSuggestionHandler(req: Request, res: Response) {
   if (updated.type === "identify_person" && updated.proposed.displayName) {
     const personName = displayName || updated.proposed.displayName;
     if (personName) {
-      upsertPerson({
-        displayName: personName,
-        relationship: updated.proposed.relationship,
-        photoAssetId: updated.evidence.frameAssetId,
-        remindersEnabled: remindersEnabled ?? false,
-        notes: `Added via suggestion approval from transcript: "${updated.evidence.transcriptSnippet}"`,
-      });
+      try {
+        const createdPerson = upsertPerson({
+          displayName: personName,
+          relationship: updated.proposed.relationship,
+          photoAssetId: updated.evidence.frameAssetId,
+          remindersEnabled: remindersEnabled ?? false,
+          notes: `Added via suggestion approval from transcript: "${updated.evidence.transcriptSnippet}"`,
+        });
+        console.log(`[suggestions] ✅ Created/updated person from identify_person suggestion:`, {
+          personId: createdPerson.id,
+          displayName: createdPerson.displayName,
+          suggestionId: id,
+        });
+      } catch (error) {
+        console.error(`[suggestions] ❌ Error creating person from identify_person suggestion:`, error);
+        // Continue even if person creation fails - we still approved the suggestion
+      }
+    }
+  }
+
+  // If it's a relationship_suggestion, create/update the person
+  if (updated.type === "relationship_suggestion" && updated.proposed.relationship) {
+    // For relationship suggestions, we need a display name - use the relationship as default
+    // or allow the caregiver to provide one (could be enhanced in future)
+    const personName = displayName || toTitleCase(updated.proposed.relationship);
+    if (personName) {
+      try {
+        const createdPerson = upsertPerson({
+          displayName: personName,
+          relationship: updated.proposed.relationship,
+          photoAssetId: updated.evidence.frameAssetId,
+          remindersEnabled: remindersEnabled ?? false,
+          notes: `Added via relationship suggestion approval from transcript: "${updated.evidence.transcriptSnippet}"`,
+        });
+        console.log(`[suggestions] ✅ Created/updated person from relationship_suggestion:`, {
+          personId: createdPerson.id,
+          displayName: createdPerson.displayName,
+          relationship: createdPerson.relationship,
+          suggestionId: id,
+        });
+      } catch (error) {
+        console.error(`[suggestions] ❌ Error creating person from relationship_suggestion:`, error);
+        // Continue even if person creation fails - we still approved the suggestion
+      }
     }
   }
 

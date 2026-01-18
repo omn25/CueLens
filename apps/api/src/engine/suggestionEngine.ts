@@ -4,6 +4,7 @@ import {
   wasRepeatedRecently,
   generateTriggerKey,
 } from "./triggerHistory.js";
+import { listPeople } from "../store/peopleStore.js";
 
 /**
  * Relationship keywords to detect in transcripts
@@ -404,6 +405,8 @@ export function generateSuggestionsFromTranscript(
   const isNameIntroductionPatternMatch = hasNameIntroductionPattern(transcript);
 
   // Detect relationship keywords with de-dupe/cooldown
+  const existingPeople = listPeople(); // Get existing people for duplicate checking
+  
   for (const keyword of RELATIONSHIP_KEYWORDS) {
     if (lowerTranscript.includes(keyword.toLowerCase())) {
       const triggerKey = generateTriggerKey("rel", keyword);
@@ -411,6 +414,16 @@ export function generateSuggestionsFromTranscript(
       // Check cooldown before processing
       if (!shouldProcessTrigger(triggerKey)) {
         continue; // Skip - in cooldown period
+      }
+      
+      // Check for duplicate: if a person with this relationship already exists, skip
+      const existingPersonWithRelationship = existingPeople.find(
+        (p) => p.relationship?.toLowerCase() === keyword.toLowerCase()
+      );
+      
+      if (existingPersonWithRelationship) {
+        // Exact relationship match found - skip to avoid duplicates
+        continue;
       }
       
       const confidence = calculateConfidence(
@@ -448,6 +461,22 @@ export function generateSuggestionsFromTranscript(
       continue; // Skip - in cooldown period
     }
     
+    // Check for duplicate: if a person with this name already exists, skip
+    const existingPersonWithName = existingPeople.find(
+      (p) => p.displayName.toLowerCase() === name.toLowerCase()
+    );
+    
+    if (existingPersonWithName) {
+      // Exact name match found - skip to avoid duplicates
+      continue;
+    }
+    
+    // Check if uncertain match (same name but different person - would need face comparison)
+    // For now, if we have both name and frame, we could flag it, but since we're skipping exact matches,
+    // this would only happen if there's ambiguity we can't resolve yet
+    let duplicateFlag = false;
+    // Future: Add face comparison logic here to set duplicateFlag if uncertain
+    
     const confidence = calculateConfidence(
       transcript,
       hasFrame,
@@ -468,6 +497,7 @@ export function generateSuggestionsFromTranscript(
         transcriptSnippet: transcript,
         frameAssetId: ctx?.frameAssetId,
         confidence,
+        duplicateFlag: duplicateFlag || undefined, // Only include if true
       },
     });
   }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import type { Suggestion } from "@cuelens/shared";
 import Sidebar from "../components/Sidebar";
+import { usePeopleProfiles } from "@/hooks/usePeopleProfiles";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
@@ -14,11 +15,13 @@ interface ApproveModalState {
 
 export default function CaregiverPage() {
   const [pendingSuggestions, setPendingSuggestions] = useState<Suggestion[]>([]);
-  const [approvedSuggestions, setApprovedSuggestions] = useState<Suggestion[]>([]);
+  const [pastSuggestions, setPastSuggestions] = useState<Suggestion[]>([]);
+  const [isPastSuggestionsOpen, setIsPastSuggestionsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [approveModal, setApproveModal] = useState<ApproveModalState | null>(null);
   const [frameImages, setFrameImages] = useState<Map<string, string>>(new Map());
+  const { addPerson } = usePeopleProfiles();
 
   // Fetch suggestions
   const fetchSuggestions = async () => {
@@ -26,20 +29,23 @@ export default function CaregiverPage() {
       setIsLoading(true);
       setError(null);
 
-      const [pendingRes, approvedRes] = await Promise.all([
+      const [pendingRes, approvedRes, rejectedRes] = await Promise.all([
         fetch(`${API_BASE_URL}/suggestions?status=pending`),
         fetch(`${API_BASE_URL}/suggestions?status=approved`),
+        fetch(`${API_BASE_URL}/suggestions?status=rejected`),
       ]);
 
-      if (!pendingRes.ok || !approvedRes.ok) {
+      if (!pendingRes.ok || !approvedRes.ok || !rejectedRes.ok) {
         throw new Error("Failed to fetch suggestions");
       }
 
       const pending = await pendingRes.json();
       const approved = await approvedRes.json();
+      const rejected = await rejectedRes.json();
 
       setPendingSuggestions(pending);
-      setApprovedSuggestions(approved);
+      // Combine approved and rejected into past suggestions
+      setPastSuggestions([...approved, ...rejected].sort((a, b) => b.updatedAt - a.updatedAt));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load suggestions");
       console.error("Error fetching suggestions:", err);
@@ -76,20 +82,20 @@ export default function CaregiverPage() {
 
   // Fetch frame images when suggestions change
   useEffect(() => {
-    const allSuggestions = [...pendingSuggestions, ...approvedSuggestions];
+    const allSuggestions = [...pendingSuggestions, ...pastSuggestions];
     allSuggestions.forEach((s) => {
       if (s.evidence.frameAssetId) {
         fetchFrameImage(s.evidence.frameAssetId);
       }
     });
-  }, [pendingSuggestions, approvedSuggestions]);
+  }, [pendingSuggestions, pastSuggestions]);
 
-  // Handle approve click - open modal for identify_person, direct approve for others
+  // Handle approve click - open modal for identify_person and relationship_suggestion
   const handleApproveClick = (suggestion: Suggestion) => {
-    if (suggestion.type === "identify_person") {
+    if (suggestion.type === "identify_person" || suggestion.type === "relationship_suggestion") {
       setApproveModal({
         suggestion,
-        displayName: suggestion.proposed.displayName || "",
+        displayName: suggestion.proposed.displayName || suggestion.proposed.relationship || "",
         remindersEnabled: false,
       });
     } else {
@@ -117,6 +123,70 @@ export default function CaregiverPage() {
 
       if (!response.ok) {
         throw new Error("Failed to approve suggestion");
+      }
+
+      const approvedSuggestion = await response.json();
+
+      // After successful approval, add person to local store if it was created
+      // This syncs with the API store (which uses in-memory Map)
+      // The API creates the person server-side, but the UI reads from localStorage
+      if (approvedSuggestion.type === "identify_person" || approvedSuggestion.type === "relationship_suggestion") {
+        const personName = options?.displayName || approvedSuggestion.proposed.displayName || approvedSuggestion.proposed.relationship || "";
+        if (personName && personName.trim()) {
+          try {
+            // Fetch frame image if available and convert to PersonPhoto
+            const photos: import("@/types/person").PersonPhoto[] = [];
+            
+            if (approvedSuggestion.evidence.frameAssetId) {
+              try {
+                // Check if we already have the frame in cache
+                let frameDataUrl: string | undefined = frameImages.get(approvedSuggestion.evidence.frameAssetId);
+                
+                // If not in cache, fetch it from API
+                if (!frameDataUrl) {
+                  const frameResponse = await fetch(`${API_BASE_URL}/frames/${approvedSuggestion.evidence.frameAssetId}`);
+                  if (frameResponse.ok) {
+                    const frameData = await frameResponse.json();
+                    frameDataUrl = frameData.image; // Base64 image from API
+                    // Also cache it for future use
+                    setFrameImages((prev) => new Map(prev).set(approvedSuggestion.evidence.frameAssetId!, frameDataUrl!));
+                  }
+                }
+                
+                // Convert frame to PersonPhoto format
+                if (frameDataUrl) {
+                  photos.push({
+                    id: crypto.randomUUID(),
+                    dataUrl: frameDataUrl,
+                    angle: 'front',
+                    capturedAt: Date.now(),
+                  });
+                  console.log(`[suggestions] ✅ Added photo from frame for person:`, personName);
+                }
+              } catch (photoError) {
+                console.error("[suggestions] ⚠️ Error fetching frame photo:", photoError);
+                // Continue without photo if fetch fails
+              }
+            }
+            
+            // Add to local store so it appears in the people page
+            addPerson(
+              personName.trim(),
+              approvedSuggestion.proposed.relationship,
+              `Added via suggestion approval from transcript: "${approvedSuggestion.evidence.transcriptSnippet || ''}"`,
+              photos // Include the captured photo if available
+            );
+            console.log(`[suggestions] ✅ Added person to local store:`, {
+              name: personName,
+              relationship: approvedSuggestion.proposed.relationship,
+              photoCount: photos.length,
+              suggestionId: id,
+            });
+          } catch (localError) {
+            console.error("[suggestions] ⚠️ Error adding person to local store:", localError);
+            // Continue even if local store update fails - person is still in API store
+          }
+        }
       }
 
       await fetchSuggestions();
@@ -229,6 +299,11 @@ export default function CaregiverPage() {
                             Proposed relationship: {suggestion.proposed.relationship}
                           </p>
                         )}
+                        {suggestion.evidence.duplicateFlag && (
+                          <p className="text-yellow-400 text-xs mt-1 font-semibold">
+                            ⚠️ Possible duplicate - please review carefully
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -253,41 +328,94 @@ export default function CaregiverPage() {
             )}
           </div>
 
-          {/* Approved suggestions */}
+          {/* Past Suggestions - Collapsible */}
           <div className="glass-panel rounded-xl p-6">
-            <h2 className="text-xl font-semibold text-white mb-4">
-              Approved Suggestions ({approvedSuggestions.length})
-            </h2>
-            {approvedSuggestions.length === 0 ? (
-              <p className="text-gray-400 text-sm">No approved suggestions</p>
-            ) : (
-              <div className="space-y-4">
-                {approvedSuggestions.map((suggestion) => (
-                  <div
-                    key={suggestion.id}
-                    className="bg-white/5 border border-white/10 rounded-xl p-4"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-emerald-400 text-sm font-semibold">✓ Approved</span>
+            <button
+              onClick={() => setIsPastSuggestionsOpen(!isPastSuggestionsOpen)}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <h2 className="text-xl font-semibold text-white">
+                Past Suggestions ({pastSuggestions.length})
+              </h2>
+              <span className={`material-symbols-outlined text-white transition-transform ${isPastSuggestionsOpen ? 'rotate-180' : ''}`}>
+                expand_more
+              </span>
+            </button>
+            {isPastSuggestionsOpen && (
+              <>
+                {pastSuggestions.length === 0 ? (
+                  <p className="text-gray-400 text-sm">No past suggestions</p>
+                ) : (
+                  <div className="space-y-4">
+                    {pastSuggestions.map((suggestion) => (
+                      <div
+                        key={suggestion.id}
+                        className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3"
+                      >
+                        <div className="flex items-start gap-4">
+                          {/* Frame image if available */}
+                          {suggestion.evidence.frameAssetId && frameImages.has(suggestion.evidence.frameAssetId) && (
+                            <div className="flex-shrink-0">
+                              <img
+                                src={frameImages.get(suggestion.evidence.frameAssetId)}
+                                alt="Captured frame"
+                                className="w-32 h-32 object-cover rounded-lg border border-white/10"
+                              />
+                            </div>
+                          )}
+                          
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <p className="text-white font-medium">{suggestion.text}</p>
+                              {suggestion.status === "approved" ? (
+                                <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 font-semibold">
+                                  ✓ Approved
+                                </span>
+                              ) : (
+                                <span className="text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400 font-semibold">
+                                  ✗ Rejected
+                                </span>
+                              )}
+                              {suggestion.evidence.confidence && (
+                                <span className="text-xs px-2 py-1 rounded-full bg-primary/20 text-primary">
+                                  {Math.round(suggestion.evidence.confidence * 100)}% confidence
+                                </span>
+                              )}
+                            </div>
+                            {suggestion.evidence.transcriptSnippet && (
+                              <p className="text-gray-400 text-sm italic mb-2">
+                                &quot;{suggestion.evidence.transcriptSnippet}&quot;
+                              </p>
+                            )}
+                            {suggestion.proposed.displayName && (
+                              <p className="text-primary text-sm mt-1">
+                                Name: {suggestion.proposed.displayName}
+                              </p>
+                            )}
+                            {suggestion.proposed.relationship && (
+                              <p className="text-primary text-sm mt-1">
+                                Proposed relationship: {suggestion.proposed.relationship}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-white font-medium mb-2">{suggestion.text}</p>
-                        {suggestion.evidence.transcriptSnippet && (
-                          <p className="text-gray-400 text-sm italic">
-                            &quot;{suggestion.evidence.transcriptSnippet}&quot;
-                          </p>
-                        )}
-                        {suggestion.proposed.relationship && (
-                          <p className="text-primary text-sm mt-1">
-                            Relationship: {suggestion.proposed.relationship}
-                          </p>
+                        {/* Allow re-approving rejected suggestions */}
+                        {suggestion.status === "rejected" && (
+                          <div className="flex gap-2 pt-2 border-t border-white/10">
+                            <button
+                              onClick={() => handleApproveClick(suggestion)}
+                              disabled={isLoading}
+                              className="px-4 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            >
+                              Approve Now
+                            </button>
+                          </div>
                         )}
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -297,7 +425,19 @@ export default function CaregiverPage() {
       {approveModal && approveModal.suggestion && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background-dark border border-white/10 rounded-xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-xl font-semibold text-white mb-4">Approve Person</h3>
+            <h3 className="text-xl font-semibold text-white mb-4">
+              {approveModal.suggestion.type === "relationship_suggestion" 
+                ? "Approve Relationship" 
+                : "Approve Person"}
+            </h3>
+            
+            {approveModal.suggestion.evidence.duplicateFlag && (
+              <div className="mb-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
+                <p className="text-yellow-400 text-sm font-semibold">
+                  ⚠️ Warning: Possible duplicate person detected. Please verify this is a new person.
+                </p>
+              </div>
+            )}
             
             {approveModal.suggestion.evidence.frameAssetId && frameImages.has(approveModal.suggestion.evidence.frameAssetId) && (
               <div className="mb-4">
@@ -312,7 +452,9 @@ export default function CaregiverPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Name
+                  {approveModal.suggestion.type === "relationship_suggestion" 
+                    ? "Name (optional - will use relationship if not provided)" 
+                    : "Name"}
                 </label>
                 <input
                   type="text"
@@ -321,11 +463,13 @@ export default function CaregiverPage() {
                     setApproveModal({ ...approveModal, displayName: e.target.value })
                   }
                   className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Enter name"
+                  placeholder={approveModal.suggestion.type === "relationship_suggestion" 
+                    ? "Enter name (optional)" 
+                    : "Enter name"}
                 />
               </div>
 
-              {approveModal.suggestion.type === "identify_person" && (
+              {(approveModal.suggestion.type === "identify_person" || approveModal.suggestion.type === "relationship_suggestion") && (
                 <div className="flex items-center gap-3">
                   <input
                     type="checkbox"
@@ -350,7 +494,7 @@ export default function CaregiverPage() {
                       remindersEnabled: approveModal.remindersEnabled,
                     })
                   }
-                  disabled={isLoading || !approveModal.displayName.trim()}
+                  disabled={isLoading || (approveModal.suggestion.type === "identify_person" && !approveModal.displayName.trim())}
                   className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   Approve

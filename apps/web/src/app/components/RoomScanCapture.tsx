@@ -177,22 +177,33 @@ export default function RoomScanCapture({ onComplete, onCancel, showStartButton 
     }
   }, [visionActive, visionReady]);
 
-  // Use Overshoot's stream when it becomes available
+  // Use Overshoot's stream when it becomes available - only update if stream actually changed
+  const lastOvershootStreamIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (visionActive && videoRef.current) {
       const overshootStream = getMediaStream();
-      if (overshootStream && videoRef.current.srcObject !== overshootStream) {
-        console.log('[RoomScanCapture] Switching to Overshoot stream');
-        // Stop previous stream if it's a direct webcam stream
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((track) => track.stop());
-          streamRef.current = null;
+      const currentStream = videoRef.current.srcObject as MediaStream | null;
+      const currentStreamId = currentStream?.id || null;
+      
+      if (overshootStream) {
+        const overshootStreamId = overshootStream.id;
+        
+        // Only switch if this is a different stream (by ID, not just reference)
+        if (overshootStreamId !== currentStreamId && overshootStreamId !== lastOvershootStreamIdRef.current) {
+          console.log('[RoomScanCapture] Switching to Overshoot stream');
+          // Stop previous stream if it's a direct webcam stream
+          if (streamRef.current && streamRef.current.id !== overshootStreamId) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+          }
+          videoRef.current.srcObject = overshootStream;
+          videoRef.current.play().catch(console.error);
+          lastOvershootStreamIdRef.current = overshootStreamId;
         }
-        videoRef.current.srcObject = overshootStream;
-        videoRef.current.play().catch(console.error);
       }
     }
-  }, [visionActive, getMediaStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visionActive]); // Removed getMediaStream from deps to prevent unnecessary re-runs
 
   useEffect(() => {
     // Handle vision errors
