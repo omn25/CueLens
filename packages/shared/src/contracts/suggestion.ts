@@ -28,3 +28,28 @@ export const SuggestionSchema = z.object({
 });
 
 export type Suggestion = z.infer<typeof SuggestionSchema>;
+
+/**
+ * Suggestion creation payload (omits id, status, timestamps)
+ * Used when creating new suggestions via API
+ */
+export const SuggestionCreateSchema = z.object({
+  type: z.enum(["identify_person", "identify_place", "relationship_suggestion"]),
+  text: z.string(),
+  related: z.object({
+    personId: z.string().optional(),
+    placeId: z.string().optional(),
+    visionEventId: z.string().optional(),
+  }),
+  proposed: z.object({
+    displayName: z.string().optional(),
+    relationship: z.string().optional(),
+  }),
+  evidence: z.object({
+    transcriptSnippet: z.string().optional(),
+    frameAssetId: z.string().optional(),
+    confidence: z.number().optional(),
+  }),
+});
+
+export type SuggestionCreate = z.infer<typeof SuggestionCreateSchema>;

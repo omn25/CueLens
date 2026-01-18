@@ -11,6 +11,7 @@ export const PersonSchema = z.object({
   notes: z.string().optional(),
   photoAssetId: z.string().optional(),
   embeddingId: z.string().optional(),
+  remindersEnabled: z.boolean().optional(), // Whether audio reminders are enabled for this person
   createdAt: z.number(), // unix timestamp in milliseconds
   updatedAt: z.number(), // unix timestamp in milliseconds
 });

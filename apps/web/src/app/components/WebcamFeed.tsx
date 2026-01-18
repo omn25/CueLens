@@ -1,22 +1,34 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+
 import { useOvershootVision } from '@/hooks/useOvershootVision';
 import { useRoomProfiles } from '@/hooks/useRoomProfiles';
 import { ROOM_OBSERVATION_PROMPT, ROOM_OBSERVATION_OUTPUT_SCHEMA } from '@/lib/roomSchema';
 import { pickBestMatch } from '@/lib/roomMatching';
 import type { RoomObservation } from '@/types/room';
 import DetectedRoomModal from './DetectedRoomModal';
-//hi this is a test
+
+// STT (from Om branch)
+import { captureFrameFromVideo, uploadFrame } from '@/lib/frameCapture';
+import { OpenAIRealtimeClient } from '@/lib/openaiRealtimeClient';
+import { HTTPSTTClient } from '@/lib/httpSttClient';
+
 export default function WebcamFeed() {
   const videoRef = useRef<HTMLVideoElement>(null);
+
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Main branch state
   const [liveObservation, setLiveObservation] = useState<RoomObservation | null>(null);
   const [detectedRoom, setDetectedRoom] = useState<{ name: string; score: number } | null>(null);
-  const [showFullOutput, setShowFullOutput] = useState(false); // Default to minimized (summary view)
+
+  // KeeretFinal preference: start minimized (summary view)
+  const [showFullOutput, setShowFullOutput] = useState(false);
+
   const streamRef = useRef<MediaStream | null>(null);
-  
+
   // Stability buffer for consecutive matches
   const consecMatchRef = useRef<number>(0);
   const lastMatchRef = useRef<{ id: string; name: string; score: number } | null>(null);
@@ -25,37 +37,40 @@ export default function WebcamFeed() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const profilesRef = useRef<any[]>([]);
 
+  // STT (Om branch) - audio only (no UI)
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const openaiRealtimeRef = useRef<OpenAIRealtimeClient | null>(null);
+  const httpSttRef = useRef<HTTPSTTClient | null>(null);
+  const sessionIdRef = useRef<string>(`session_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+  const isConnectingRef = useRef<boolean>(false);
+
+  // Feature flag: USE_REALTIME_STT=true uses WebSocket realtime, else uses HTTP chunk fallback
+  const useRealtimeSTT = (process.env.NEXT_PUBLIC_USE_REALTIME_STT || 'false').toLowerCase() === 'true';
+
   // Get room profiles from storage
   const { profiles } = useRoomProfiles();
-  
+
   // Keep profiles ref up to date
   useEffect(() => {
     profilesRef.current = profiles;
   }, [profiles]);
 
-  // API key is loaded from .env.local via useOvershootVision hook
-  // No UI needed - key is configured in environment variable
-
   // Handle observations from Overshoot with stable callback
   const handleObservation = useCallback((obs: RoomObservation) => {
     setLiveObservation(obs);
+
     observationBufferRef.current.push(obs);
-    // Keep only last 5 observations
     if (observationBufferRef.current.length > 5) {
       observationBufferRef.current.shift();
     }
 
     const currentProfiles = profilesRef.current;
-    if (currentProfiles.length === 0) {
-      return;
-    }
+    if (currentProfiles.length === 0) return;
 
     const now = Date.now();
-    
-    // Check cooldown
-    if (now < cooldownUntilRef.current) {
-      return; // Still in cooldown
-    }
+
+    // Cooldown check
+    if (now < cooldownUntilRef.current) return;
 
     // Find best match using deterministic matching
     const best = pickBestMatch(
@@ -67,53 +82,55 @@ export default function WebcamFeed() {
       }))
     );
 
-
-    // Check if score >= 0.50 (50% similarity threshold as requested)
-    if (best.score >= 0.50) {
-      // Check if it's the same match as last time
+    // 50% threshold
+    if (best.score >= 0.5) {
       if (lastMatchRef.current && lastMatchRef.current.id === best.id) {
         consecMatchRef.current += 1;
       } else {
-        // Different match, reset counter
         consecMatchRef.current = 1;
       }
+
       lastMatchRef.current = { id: best.id, name: best.name, score: best.score };
 
-      // If we have 3 consecutive matches, show modal
+      // Need 3 consecutive matches
       if (consecMatchRef.current >= 3) {
         setDetectedRoom({ name: best.name, score: best.score });
-        cooldownUntilRef.current = now + 30000; // 30 second cooldown
-        consecMatchRef.current = 0; // Reset counter
+        cooldownUntilRef.current = now + 30000; // 30s cooldown
+        consecMatchRef.current = 0;
       }
     } else {
-      // Score too low, reset counter
       consecMatchRef.current = 0;
       lastMatchRef.current = null;
     }
-  }, []); // Empty deps - stable callback
+  }, []);
 
   // Enable Overshoot vision with room observation schema
-  const { getMediaStream, error: visionError, isQueued: visionQueued, getStreamStatus, isActive: visionActive } = useOvershootVision({
+  const {
+    getMediaStream,
+    error: visionError,
+    isQueued: visionQueued,
+    getStreamStatus,
+    isActive: visionActive,
+  } = useOvershootVision({
     prompt: ROOM_OBSERVATION_PROMPT,
     outputSchema: ROOM_OBSERVATION_OUTPUT_SCHEMA,
-    enabled: true, // ENABLED for room recognition
+    enabled: true,
     processing: {
-      clip_length_seconds: 1, // Process 1 second clips
-      delay_seconds: 1, // Wait 1 second between processing
+      clip_length_seconds: 1,
+      delay_seconds: 1,
     },
     onObservation: handleObservation,
   });
 
-
-  // Track the last stream ID to prevent unnecessary updates
+  // ---- KeeretFinal stream stability additions ----
   const lastStreamIdRef = useRef<string | null>(null);
   const isInitializingRef = useRef(false);
   const directWebcamStreamRef = useRef<MediaStream | null>(null);
 
-  // Use Overshoot's stream or fallback to direct webcam for video display
+  // Use Overshoot's stream or fallback to direct webcam for video display (stable)
   useEffect(() => {
     let mounted = true;
-    let checkInterval: NodeJS.Timeout | null = null;
+    let checkInterval: ReturnType<typeof setInterval> | null = null;
 
     const updateVideoStream = async () => {
       if (!mounted || !videoRef.current || isInitializingRef.current) return;
@@ -123,20 +140,20 @@ export default function WebcamFeed() {
       const currentStream = videoRef.current.srcObject as MediaStream | null;
       const currentStreamId = currentStream?.id || null;
 
-      if (overshootStream && mounted && videoRef.current) {
+      if (overshootStream) {
         const overshootStreamId = overshootStream.id;
-        
-        // Only update if stream actually changed (by ID, not by reference)
+
+        // Only update if stream actually changed (by ID, not reference)
         if (currentStreamId !== overshootStreamId && lastStreamIdRef.current !== overshootStreamId) {
           isInitializingRef.current = true;
           console.log('[WebcamFeed] ✅ Setting Overshoot stream to video element');
-          
+
           // Stop direct webcam stream if we have Overshoot stream
           if (directWebcamStreamRef.current && directWebcamStreamRef.current.id !== overshootStreamId) {
-            directWebcamStreamRef.current.getTracks().forEach(track => track.stop());
+            directWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
             directWebcamStreamRef.current = null;
           }
-          
+
           try {
             videoRef.current.srcObject = overshootStream;
             await videoRef.current.play();
@@ -154,13 +171,20 @@ export default function WebcamFeed() {
       }
 
       // Fallback: If no Overshoot stream and we don't have a stream, get direct webcam access
-      if (!overshootStream && mounted && !directWebcamStreamRef.current && !currentStream && !streamRef.current && !isInitializingRef.current) {
+      if (
+        !overshootStream &&
+        mounted &&
+        !directWebcamStreamRef.current &&
+        !currentStream &&
+        !streamRef.current &&
+        !isInitializingRef.current
+      ) {
         isInitializingRef.current = true;
         try {
           const directWebcamStream = await navigator.mediaDevices.getUserMedia({
             video: { width: 1280, height: 720, facingMode: 'user' },
           });
-          
+
           if (videoRef.current && mounted) {
             const streamId = directWebcamStream.id;
             // Only set if we don't already have this stream
@@ -174,7 +198,7 @@ export default function WebcamFeed() {
               setError(null);
             } else {
               // Stream already set, just stop the new one
-              directWebcamStream.getTracks().forEach(track => track.stop());
+              directWebcamStream.getTracks().forEach((track) => track.stop());
             }
           }
         } catch (err) {
@@ -191,66 +215,204 @@ export default function WebcamFeed() {
 
     // Initial setup - try once
     updateVideoStream();
-    
+
     // Check periodically but less frequently to avoid flickering
     checkInterval = setInterval(() => {
       if (mounted && !isInitializingRef.current) {
         updateVideoStream();
       }
-    }, 3000); // Check every 3 seconds
-    
+    }, 3000); // every 3s
+
     return () => {
       mounted = false;
       isInitializingRef.current = false;
-      if (checkInterval) {
-        clearInterval(checkInterval);
-      }
+      if (checkInterval) clearInterval(checkInterval);
+
       // Clean up direct webcam stream if it exists
       if (directWebcamStreamRef.current) {
-        directWebcamStreamRef.current.getTracks().forEach(track => track.stop());
+        directWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
         directWebcamStreamRef.current = null;
       }
     };
   }, [visionActive, getMediaStream]);
 
-  // Vision error handling - only show critical errors, not API key warnings
+  // STT effect (audio-only). Keeps vision/video logic separate.
+  useEffect(() => {
+    let mounted = true;
+
+    const startSTT = async () => {
+      try {
+        if (isConnectingRef.current || openaiRealtimeRef.current || httpSttRef.current) return;
+
+        // Request mic only (no video)
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+
+        if (!mounted) {
+          audioStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        audioStreamRef.current = audioStream;
+
+        const handleFinalTranscript = async (text: string) => {
+          if (!mounted) return;
+          if (!text || text.trim().length === 0) return;
+
+          console.log(`✅ STT transcript (FINAL): ${text}`);
+
+          // Attach a frame snapshot for backend context (optional)
+          let frameAssetId: string | undefined = undefined;
+          if (videoRef.current) {
+            const frameBase64 = captureFrameFromVideo(videoRef.current);
+            if (frameBase64) {
+              try {
+                const uploadedId = await uploadFrame(frameBase64);
+                frameAssetId = uploadedId || undefined;
+              } catch (err) {
+                console.warn('⚠️ Failed to upload frame:', err);
+              }
+            }
+          }
+
+          // Send to backend suggestion engine
+          try {
+            const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+            await fetch(`${API_BASE_URL}/transcript`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                transcript: text,
+                visionEventId: sessionIdRef.current,
+                frameAssetId,
+              }),
+            });
+          } catch (err) {
+            console.error('❌ Error sending transcript:', err);
+          }
+        };
+
+        isConnectingRef.current = true;
+
+        if (useRealtimeSTT) {
+          const envModel = process.env.NEXT_PUBLIC_OPENAI_REALTIME_MODEL;
+          const validTranscriptionModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
+          const transcriptionModel =
+            envModel && validTranscriptionModels.includes(envModel) ? (envModel as any) : undefined;
+
+          if (envModel && !validTranscriptionModels.includes(envModel)) {
+            console.warn(`⚠️ Invalid NEXT_PUBLIC_OPENAI_REALTIME_MODEL: "${envModel}"`);
+            console.warn(`   Must be one of: ${validTranscriptionModels.join(', ')}`);
+            console.warn('   Using default: gpt-4o-mini-transcribe');
+          }
+
+          const openaiRealtime = new OpenAIRealtimeClient({
+            model: transcriptionModel,
+            onTranscript: (text: string, isFinal?: boolean) => {
+              if (isFinal === false) return;
+              void handleFinalTranscript(text);
+            },
+            onError: (err) => {
+              console.error('OpenAI Real-Time error:', err);
+              if (mounted) setError(`OpenAI Real-Time error: ${err.message}`);
+            },
+          });
+
+          openaiRealtimeRef.current = openaiRealtime;
+          await openaiRealtime.connect(audioStream);
+          console.log('✅ OpenAI Real-Time connected and streaming');
+        } else {
+          const httpStt = new HTTPSTTClient({
+            onTranscript: (text) => {
+              void handleFinalTranscript(text);
+            },
+            onError: (err) => {
+              console.error('HTTP STT error:', err);
+              if (mounted) setError(`HTTP STT error: ${err.message}`);
+            },
+            chunkDurationMs: 2500,
+          });
+
+          httpStt.setFrameCaptureCallback(() => {
+            if (videoRef.current) return captureFrameFromVideo(videoRef.current);
+            return null;
+          });
+
+          httpSttRef.current = httpStt;
+          await httpStt.start(audioStream);
+          console.log('✅ HTTP STT started (chunked recording)');
+        }
+      } catch (sttError) {
+        console.error(`❌ Failed to initialize STT (${useRealtimeSTT ? 'Realtime' : 'HTTP'}):`, sttError);
+        // Non-fatal: continue without STT
+      } finally {
+        isConnectingRef.current = false;
+      }
+    };
+
+    startSTT();
+
+    return () => {
+      mounted = false;
+
+      if (httpSttRef.current) {
+        httpSttRef.current.stop();
+        httpSttRef.current = null;
+      }
+
+      if (openaiRealtimeRef.current) {
+        openaiRealtimeRef.current.disconnect?.();
+        openaiRealtimeRef.current = null;
+      }
+
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((t) => t.stop());
+        audioStreamRef.current = null;
+      }
+    };
+  }, [useRealtimeSTT]);
+
+  // Vision error handling - only show critical errors
   useEffect(() => {
     if (visionError) {
-      // Don't show API key errors or RTCPeerConnection errors since we're using fallback mode
-      const isApiKeyError = visionError.includes('API key') || 
-                           visionError.includes('Overshoot API key') ||
-                           visionError.includes('not configured') ||
-                           visionError.includes('NEXT_PUBLIC_OVERSHOOT_API_KEY') ||
-                           visionError.includes('revoked') ||
-                           visionError.includes('authentication failed') ||
-                           visionError.includes('has been revoked') ||
-                           visionError.includes('unauthorized') ||
-                           visionError.includes('401') ||
-                           visionError.includes('403') ||
-                           visionError.includes('invalid');
-      
-      const isPeerConnectionError = visionError.includes('RTCPeerConnection') ||
-                                    visionError.includes('PeerConnection') ||
-                                    visionError.includes('Cannot create so many');
-      
-      const isCameraError = visionError.includes('Camera access denied') ||
-                           visionError.includes('camera access') ||
-                           visionError.includes('Permission denied');
-      
-      // Don't show errors if we have a working stream, or if it's an API/connection error
+      const isApiKeyError =
+        visionError.includes('API key') ||
+        visionError.includes('Overshoot API key') ||
+        visionError.includes('not configured') ||
+        visionError.includes('NEXT_PUBLIC_OVERSHOOT_API_KEY') ||
+        visionError.includes('revoked') ||
+        visionError.includes('authentication failed') ||
+        visionError.includes('has been revoked') ||
+        visionError.includes('unauthorized') ||
+        visionError.includes('401') ||
+        visionError.includes('403') ||
+        visionError.includes('invalid');
+
+      const isPeerConnectionError =
+        visionError.includes('RTCPeerConnection') ||
+        visionError.includes('PeerConnection') ||
+        visionError.includes('Cannot create so many');
+
+      const isCameraError =
+        visionError.includes('Camera access denied') ||
+        visionError.includes('camera access') ||
+        visionError.includes('Permission denied');
+
+      // If camera is working, don't show these errors
       if (isStreaming) {
-        // Camera is working, clear any errors
         setError(null);
       } else if (!isApiKeyError && !isPeerConnectionError && !isCameraError) {
-        // Only show non-camera, non-API errors if we don't have a stream
         console.error('[WebcamFeed] Vision error:', visionError);
         setError(`Vision error: ${visionError}`);
       } else {
-        // API/connection/camera errors - don't show if we have fallback or if camera is working
         setError(null);
       }
     } else {
-      // Clear error when visionError is cleared
       setError(null);
     }
   }, [visionError, isStreaming]);
@@ -271,7 +433,6 @@ export default function WebcamFeed() {
         className="absolute inset-0 w-full h-full object-cover"
         style={{ transform: 'scaleX(-1)' }} // Mirror the video
         onLoadedMetadata={() => {
-          // Ensure video plays when metadata is loaded
           if (videoRef.current) {
             videoRef.current.play().catch(console.error);
           }
@@ -283,14 +444,10 @@ export default function WebcamFeed() {
 
       {/* Detected Room Modal */}
       {detectedRoom && (
-        <DetectedRoomModal
-          roomName={detectedRoom.name}
-          confidence={detectedRoom.score}
-          onDismiss={handleDismissModal}
-        />
+        <DetectedRoomModal roomName={detectedRoom.name} confidence={detectedRoom.score} onDismiss={handleDismissModal} />
       )}
 
-      {/* Overshoot Output Indicator - Bottom Right - ALWAYS VISIBLE */}
+      {/* Overshoot Output Indicator - Bottom Right */}
       <div className="absolute bottom-6 right-6 z-30 max-w-lg rounded-xl border-2 border-primary/50 shadow-2xl glass-panel p-4 bg-black/95 backdrop-blur-sm">
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-primary text-lg">smart_display</span>
@@ -310,84 +467,77 @@ export default function WebcamFeed() {
               className="text-white/60 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
               title={showFullOutput ? 'Show summary' : 'Show full JSON'}
             >
-              <span className="material-symbols-outlined text-lg">
-                {showFullOutput ? 'unfold_less' : 'unfold_more'}
-              </span>
+              <span className="material-symbols-outlined text-lg">{showFullOutput ? 'unfold_less' : 'unfold_more'}</span>
             </button>
           </div>
         </div>
-        
-          {liveObservation ? (
-            <>
-              {showFullOutput ? (
-                // Full JSON View - DEFAULT
-                <div className="text-[10px] text-white/90 max-h-[500px] overflow-y-auto bg-slate-900/80 rounded-lg p-3 border border-white/20">
-                  <pre className="text-white font-mono leading-relaxed whitespace-pre-wrap break-words">
-                    {JSON.stringify(liveObservation, null, 2)}
-                  </pre>
+
+        {liveObservation ? (
+          <>
+            {showFullOutput ? (
+              <div className="text-[10px] text-white/90 max-h-[500px] overflow-y-auto bg-slate-900/80 rounded-lg p-3 border border-white/20">
+                <pre className="text-white font-mono leading-relaxed whitespace-pre-wrap break-words">
+                  {JSON.stringify(liveObservation, null, 2)}
+                </pre>
+              </div>
+            ) : (
+              <div className="text-[10px] text-white/80 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-white/60">Room:</span>
+                  <span className="text-white font-medium capitalize">{liveObservation.room_type.replace('_', ' ')}</span>
                 </div>
-              ) : (
-                // Summary View
-                <div className="text-[10px] text-white/80 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/60">Room:</span>
-                    <span className="text-white font-medium capitalize">{liveObservation.room_type.replace('_', ' ')}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/60">Furniture:</span>
-                    <span className="text-white">{liveObservation.fixed_elements.major_furniture.length} items</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/60">Lighting:</span>
-                    <span className="text-white">{liveObservation.fixed_elements.lighting.length} fixtures</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/60">Markers:</span>
-                    <span className="text-white">{liveObservation.distinctive_markers.length}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/60">Decor:</span>
-                    <span className="text-white">{liveObservation.fixed_elements.large_decor.length} items</span>
-                  </div>
-                  
-                  {/* Summary text */}
-                  {liveObservation.summary && (
-                    <div className="mt-2 pt-2 border-t border-white/10">
-                      <div className="text-white/50 text-[9px] mb-1">Summary:</div>
-                      <p className="text-white/70 text-[9px] leading-relaxed">{liveObservation.summary}</p>
-                    </div>
-                  )}
+                <div className="flex items-center justify-between">
+                  <span className="text-white/60">Furniture:</span>
+                  <span className="text-white">{liveObservation.fixed_elements.major_furniture.length} items</span>
                 </div>
-              )}
-              
-              {detectedRoom && (
-                <div className="mt-3 pt-3 border-t border-emerald-500/50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-emerald-400 text-xs font-bold">✓ MATCH:</span>
-                    <span className="text-emerald-400 font-bold text-xs">
-                      {detectedRoom.name} ({Math.round(detectedRoom.score * 100)}%)
-                    </span>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/60">Lighting:</span>
+                  <span className="text-white">{liveObservation.fixed_elements.lighting.length} fixtures</span>
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="space-y-2 py-4">
-              <p className="text-white/60 text-[11px] font-medium">Waiting for Overshoot observation...</p>
-              <p className="text-white/40 text-[10px]">
-                {isStreaming 
-                  ? visionActive
-                    ? 'Overshoot is analyzing the room. Results will appear here when ready.'
-                    : 'Overshoot is initializing...'
-                  : 'Camera stream not active. Start streaming to see Overshoot output.'}
-              </p>
-              {visionError && (
-                <p className="text-red-400 text-[10px] mt-2">Error: {visionError}</p>
-              )}
-            </div>
-          )}
-        
-        {/* Stream Status - Always visible for monitoring */}
+                <div className="flex items-center justify-between">
+                  <span className="text-white/60">Markers:</span>
+                  <span className="text-white">{liveObservation.distinctive_markers.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/60">Decor:</span>
+                  <span className="text-white">{liveObservation.fixed_elements.large_decor.length} items</span>
+                </div>
+
+                {liveObservation.summary && (
+                  <div className="mt-2 pt-2 border-t border-white/10">
+                    <div className="text-white/50 text-[9px] mb-1">Summary:</div>
+                    <p className="text-white/70 text-[9px] leading-relaxed">{liveObservation.summary}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {detectedRoom && (
+              <div className="mt-3 pt-3 border-t border-emerald-500/50">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-400 text-xs font-bold">✓ MATCH:</span>
+                  <span className="text-emerald-400 font-bold text-xs">
+                    {detectedRoom.name} ({Math.round(detectedRoom.score * 100)}%)
+                  </span>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="space-y-2 py-4">
+            <p className="text-white/60 text-[11px] font-medium">Waiting for Overshoot observation...</p>
+            <p className="text-white/40 text-[10px]">
+              {isStreaming
+                ? visionActive
+                  ? 'Overshoot is analyzing the room. Results will appear here when ready.'
+                  : 'Overshoot is initializing...'
+                : 'Camera stream not active. Start streaming to see Overshoot output.'}
+            </p>
+            {visionError && <p className="text-red-400 text-[10px] mt-2">Error: {visionError}</p>}
+          </div>
+        )}
+
+        {/* Stream Status */}
         {(() => {
           const status = getStreamStatus();
           return (
@@ -397,14 +547,10 @@ export default function WebcamFeed() {
                 <span className={status.active === 1 ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-bold'}>
                   {status.active}/{status.max} active
                 </span>
-                {status.queued > 0 && (
-                  <span className="text-amber-400 ml-2">({status.queued} queued)</span>
-                )}
+                {status.queued > 0 && <span className="text-amber-400 ml-2">({status.queued} queued)</span>}
               </div>
               {status.active > 1 && (
-                <div className="text-red-400 text-[9px] mt-1 font-bold">
-                  ⚠️ WARNING: Multiple streams detected!
-                </div>
+                <div className="text-red-400 text-[9px] mt-1 font-bold">⚠️ WARNING: Multiple streams detected!</div>
               )}
             </div>
           );
@@ -429,3 +575,4 @@ export default function WebcamFeed() {
     </div>
   );
 }
+
