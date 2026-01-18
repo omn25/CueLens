@@ -1,10 +1,14 @@
+'use client';
+
 import Link from 'next/link';
+import { useCaretakerMode } from '../contexts/CaretakerModeContext';
 
 interface SidebarProps {
   activePage?: 'live-vision' | 'places' | 'people' | 'settings';
 }
 
 export default function Sidebar({ activePage = 'live-vision' }: SidebarProps) {
+  const { isCaretakerMode, toggleCaretakerMode } = useCaretakerMode();
   return (
     <nav className="w-72 h-full flex flex-col bg-[#1e2124] border-r border-white/5 z-20 shrink-0">
       <div className="p-6 pb-2">
@@ -87,7 +91,31 @@ export default function Sidebar({ activePage = 'live-vision' }: SidebarProps) {
           </Link>
         </div>
       </div>
-      <div className="mt-auto p-6 border-t border-white/5">
+      <div className="mt-auto p-6 border-t border-white/5 flex flex-col gap-4">
+        {/* Caretaker Mode Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+          <div className="flex flex-col gap-1">
+            <span className="text-white text-sm font-semibold">Caretaker Mode</span>
+            <span className="text-gray-400 text-xs">
+              {isCaretakerMode ? 'Full access enabled' : 'View-only mode'}
+            </span>
+          </div>
+          <button
+            onClick={toggleCaretakerMode}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-[#1e2124] ${
+              isCaretakerMode ? 'bg-primary' : 'bg-gray-600'
+            }`}
+            aria-label={isCaretakerMode ? 'Disable caretaker mode' : 'Enable caretaker mode'}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                isCaretakerMode ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* User Profile */}
         <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5">
           <div
             className="size-10 rounded-full bg-cover bg-center shrink-0"
