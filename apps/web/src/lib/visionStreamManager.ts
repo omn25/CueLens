@@ -1,10 +1,10 @@
 /**
  * Global Vision Stream Manager
- * Enforces a maximum of 1 concurrent Overshoot vision stream (SINGLE STREAM ONLY)
+ * Enforces a maximum of 2 concurrent Overshoot vision streams
  */
 class VisionStreamManager {
   private activeStreams = new Set<string>();
-  private readonly MAX_STREAMS = 1; // ONLY ONE STREAM - CRITICAL
+  private readonly MAX_STREAMS = 2; // Maximum 2 concurrent streams
   private waitQueue: Array<{ id: string; resolve: () => void }> = [];
 
   /**
