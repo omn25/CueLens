@@ -23,7 +23,9 @@ export default function WebcamFeed() {
   // Main branch state
   const [liveObservation, setLiveObservation] = useState<RoomObservation | null>(null);
   const [detectedRoom, setDetectedRoom] = useState<{ name: string; score: number } | null>(null);
-  const [showFullOutput, setShowFullOutput] = useState(true); // Default to showing full JSON
+
+  // KeeretFinal preference: start minimized (summary view)
+  const [showFullOutput, setShowFullOutput] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -120,76 +122,121 @@ export default function WebcamFeed() {
     onObservation: handleObservation,
   });
 
-  // Use Overshoot's stream or fallback to direct webcam for video display (main behavior)
+  // ---- KeeretFinal stream stability additions ----
+  const lastStreamIdRef = useRef<string | null>(null);
+  const isInitializingRef = useRef(false);
+  const directWebcamStreamRef = useRef<MediaStream | null>(null);
+
+  // Use Overshoot's stream or fallback to direct webcam for video display (stable)
   useEffect(() => {
     let mounted = true;
-    let directWebcamStream: MediaStream | null = null;
+    let checkInterval: ReturnType<typeof setInterval> | null = null;
 
     const updateVideoStream = async () => {
-      // Prefer Overshoot stream
+      if (!mounted || !videoRef.current || isInitializingRef.current) return;
+
+      // First try to get Overshoot's stream (if available)
       const overshootStream = getMediaStream();
-      if (overshootStream && videoRef.current && mounted) {
-        if (videoRef.current.srcObject !== overshootStream) {
+      const currentStream = videoRef.current.srcObject as MediaStream | null;
+      const currentStreamId = currentStream?.id || null;
+
+      if (overshootStream) {
+        const overshootStreamId = overshootStream.id;
+
+        // Only update if stream actually changed (by ID, not reference)
+        if (currentStreamId !== overshootStreamId && lastStreamIdRef.current !== overshootStreamId) {
+          isInitializingRef.current = true;
           console.log('[WebcamFeed] ✅ Setting Overshoot stream to video element');
 
-          // Stop direct webcam stream if Overshoot stream is active
-          if (directWebcamStream && directWebcamStream !== overshootStream) {
-            directWebcamStream.getTracks().forEach((track) => track.stop());
-            directWebcamStream = null;
+          // Stop direct webcam stream if we have Overshoot stream
+          if (directWebcamStreamRef.current && directWebcamStreamRef.current.id !== overshootStreamId) {
+            directWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
+            directWebcamStreamRef.current = null;
           }
 
-          videoRef.current.srcObject = overshootStream;
-          videoRef.current.play().catch((err) => {
-            console.error('[WebcamFeed] Error playing video:', err);
-          });
-
-          streamRef.current = overshootStream;
-          setIsStreaming(true);
+          try {
+            videoRef.current.srcObject = overshootStream;
+            await videoRef.current.play();
+            streamRef.current = overshootStream;
+            lastStreamIdRef.current = overshootStreamId;
+            setIsStreaming(true);
+            setError(null);
+          } catch (err) {
+            console.error('[WebcamFeed] Error setting stream:', err);
+          } finally {
+            isInitializingRef.current = false;
+          }
         }
         return;
       }
 
-      // Fallback: direct webcam (video only)
-      if (!overshootStream && mounted && !directWebcamStream) {
+      // Fallback: If no Overshoot stream and we don't have a stream, get direct webcam access
+      if (
+        !overshootStream &&
+        mounted &&
+        !directWebcamStreamRef.current &&
+        !currentStream &&
+        !streamRef.current &&
+        !isInitializingRef.current
+      ) {
+        isInitializingRef.current = true;
         try {
-          directWebcamStream = await navigator.mediaDevices.getUserMedia({
+          const directWebcamStream = await navigator.mediaDevices.getUserMedia({
             video: { width: 1280, height: 720, facingMode: 'user' },
           });
 
           if (videoRef.current && mounted) {
-            videoRef.current.srcObject = directWebcamStream;
-            videoRef.current.play().catch((err) => {
-              console.error('[WebcamFeed] Error playing video:', err);
-            });
-
-            streamRef.current = directWebcamStream;
-            setIsStreaming(true);
+            const streamId = directWebcamStream.id;
+            // Only set if we don't already have this stream
+            if (lastStreamIdRef.current !== streamId && !videoRef.current.srcObject) {
+              videoRef.current.srcObject = directWebcamStream;
+              await videoRef.current.play();
+              streamRef.current = directWebcamStream;
+              directWebcamStreamRef.current = directWebcamStream;
+              lastStreamIdRef.current = streamId;
+              setIsStreaming(true);
+              setError(null);
+            } else {
+              // Stream already set, just stop the new one
+              directWebcamStream.getTracks().forEach((track) => track.stop());
+            }
           }
         } catch (err) {
           console.error('[WebcamFeed] ❌ Failed to get webcam stream:', err);
-          setError('Camera access denied or unavailable. Please allow camera access.');
+          // Only set error if we don't already have a stream
+          if (!streamRef.current) {
+            setError('Camera access denied or unavailable. Please allow camera access.');
+          }
+        } finally {
+          isInitializingRef.current = false;
         }
       }
     };
 
+    // Initial setup - try once
     updateVideoStream();
 
-    const timeout = setTimeout(() => {
-      if (mounted) updateVideoStream();
-    }, 1000);
+    // Check periodically but less frequently to avoid flickering
+    checkInterval = setInterval(() => {
+      if (mounted && !isInitializingRef.current) {
+        updateVideoStream();
+      }
+    }, 3000); // every 3s
 
     return () => {
       mounted = false;
-      clearTimeout(timeout);
+      isInitializingRef.current = false;
+      if (checkInterval) clearInterval(checkInterval);
 
-      if (directWebcamStream) {
-        directWebcamStream.getTracks().forEach((track) => track.stop());
-        directWebcamStream = null;
+      // Clean up direct webcam stream if it exists
+      if (directWebcamStreamRef.current) {
+        directWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
+        directWebcamStreamRef.current = null;
       }
     };
   }, [visionActive, getMediaStream]);
 
-  // STT effect (audio-only). Keeps main behavior unchanged.
+  // STT effect (audio-only). Keeps vision/video logic separate.
   useEffect(() => {
     let mounted = true;
 
@@ -253,7 +300,6 @@ export default function WebcamFeed() {
         isConnectingRef.current = true;
 
         if (useRealtimeSTT) {
-          // Realtime WebSocket STT
           const envModel = process.env.NEXT_PUBLIC_OPENAI_REALTIME_MODEL;
           const validTranscriptionModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
           const transcriptionModel =
@@ -268,7 +314,6 @@ export default function WebcamFeed() {
           const openaiRealtime = new OpenAIRealtimeClient({
             model: transcriptionModel,
             onTranscript: (text: string, isFinal?: boolean) => {
-              // Only handle final transcripts for backend
               if (isFinal === false) return;
               void handleFinalTranscript(text);
             },
@@ -280,10 +325,8 @@ export default function WebcamFeed() {
 
           openaiRealtimeRef.current = openaiRealtime;
           await openaiRealtime.connect(audioStream);
-
           console.log('✅ OpenAI Real-Time connected and streaming');
         } else {
-          // HTTP chunk STT fallback
           const httpStt = new HTTPSTTClient({
             onTranscript: (text) => {
               void handleFinalTranscript(text);
@@ -295,7 +338,6 @@ export default function WebcamFeed() {
             chunkDurationMs: 2500,
           });
 
-          // Optional: provide frame capture callback for HTTP STT flows that support it
           httpStt.setFrameCaptureCallback(() => {
             if (videoRef.current) return captureFrameFromVideo(videoRef.current);
             return null;
@@ -303,7 +345,6 @@ export default function WebcamFeed() {
 
           httpSttRef.current = httpStt;
           await httpStt.start(audioStream);
-
           console.log('✅ HTTP STT started (chunked recording)');
         }
       } catch (sttError) {
@@ -319,19 +360,16 @@ export default function WebcamFeed() {
     return () => {
       mounted = false;
 
-      // Stop HTTP STT
       if (httpSttRef.current) {
         httpSttRef.current.stop();
         httpSttRef.current = null;
       }
 
-      // Disconnect realtime STT (safe default)
       if (openaiRealtimeRef.current) {
         openaiRealtimeRef.current.disconnect?.();
         openaiRealtimeRef.current = null;
       }
 
-      // Stop mic tracks
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((t) => t.stop());
         audioStreamRef.current = null;
@@ -360,7 +398,15 @@ export default function WebcamFeed() {
         visionError.includes('PeerConnection') ||
         visionError.includes('Cannot create so many');
 
-      if (!isApiKeyError && !isPeerConnectionError) {
+      const isCameraError =
+        visionError.includes('Camera access denied') ||
+        visionError.includes('camera access') ||
+        visionError.includes('Permission denied');
+
+      // If camera is working, don't show these errors
+      if (isStreaming) {
+        setError(null);
+      } else if (!isApiKeyError && !isPeerConnectionError && !isCameraError) {
         console.error('[WebcamFeed] Vision error:', visionError);
         setError(`Vision error: ${visionError}`);
       } else {
@@ -369,7 +415,7 @@ export default function WebcamFeed() {
     } else {
       setError(null);
     }
-  }, [visionError]);
+  }, [visionError, isStreaming]);
 
   // Modal handler
   const handleDismissModal = useCallback(() => {
@@ -386,6 +432,11 @@ export default function WebcamFeed() {
         muted
         className="absolute inset-0 w-full h-full object-cover"
         style={{ transform: 'scaleX(-1)' }} // Mirror the video
+        onLoadedMetadata={() => {
+          if (videoRef.current) {
+            videoRef.current.play().catch(console.error);
+          }
+        }}
       />
 
       {/* Gradient Overlay */}
@@ -393,11 +444,7 @@ export default function WebcamFeed() {
 
       {/* Detected Room Modal */}
       {detectedRoom && (
-        <DetectedRoomModal
-          roomName={detectedRoom.name}
-          confidence={detectedRoom.score}
-          onDismiss={handleDismissModal}
-        />
+        <DetectedRoomModal roomName={detectedRoom.name} confidence={detectedRoom.score} onDismiss={handleDismissModal} />
       )}
 
       {/* Overshoot Output Indicator - Bottom Right */}
@@ -420,9 +467,7 @@ export default function WebcamFeed() {
               className="text-white/60 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
               title={showFullOutput ? 'Show summary' : 'Show full JSON'}
             >
-              <span className="material-symbols-outlined text-lg">
-                {showFullOutput ? 'unfold_less' : 'unfold_more'}
-              </span>
+              <span className="material-symbols-outlined text-lg">{showFullOutput ? 'unfold_less' : 'unfold_more'}</span>
             </button>
           </div>
         </div>
@@ -439,9 +484,7 @@ export default function WebcamFeed() {
               <div className="text-[10px] text-white/80 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-white/60">Room:</span>
-                  <span className="text-white font-medium capitalize">
-                    {liveObservation.room_type.replace('_', ' ')}
-                  </span>
+                  <span className="text-white font-medium capitalize">{liveObservation.room_type.replace('_', ' ')}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-white/60">Furniture:</span>
@@ -529,16 +572,7 @@ export default function WebcamFeed() {
           </div>
         </div>
       )}
-
-      {/* Loading State */}
-      {!isStreaming && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="flex flex-col items-center gap-3">
-            <div className="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-white font-medium">Initializing camera...</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+

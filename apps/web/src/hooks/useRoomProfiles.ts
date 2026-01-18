@@ -8,6 +8,45 @@ export function useRoomProfiles() {
   const [profiles, setProfiles] = useState<RoomProfile[]>([]);
   const [loaded, setLoaded] = useState(false);
 
+  // Default bedroom data
+  const getDefaultBedroom = (): RoomProfile => {
+    const now = Date.now();
+    const bedroomObservation: RoomObservation = {
+      room_type: 'bedroom',
+      fixed_elements: {
+        major_furniture: [
+          { name: 'bed', count: 1, attributes: ['queen size', 'wooden frame'] },
+          { name: 'dresser', count: 1, attributes: ['wooden', 'with mirror'] },
+          { name: 'nightstand', count: 2, attributes: ['wooden'] },
+        ],
+        surfaces: {
+          floor: { material: 'carpet', color: 'beige', pattern: 'solid' },
+          walls: { color: 'white', pattern: 'smooth' },
+          ceiling: { color: 'white' },
+        },
+        lighting: [
+          { type: 'ceiling light', count: 1, attributes: ['overhead', 'dimmable'] },
+          { type: 'table lamp', count: 2, attributes: ['bedside'] },
+        ],
+        large_decor: [
+          { name: 'window', attributes: ['curtains', 'north facing'] },
+        ],
+      },
+      distinctive_markers: ['wooden furniture', 'beige carpet', 'white walls'],
+      summary: 'A comfortable bedroom with a queen bed, wooden furniture, beige carpet, and white walls. Features two bedside lamps and a dresser with mirror.',
+    };
+
+    return {
+      id: 'default-bedroom',
+      name: 'Bedroom',
+      note: 'Main bedroom',
+      createdAt: now,
+      observationCount: 1,
+      profile: bedroomObservation,
+      rawObservations: [bedroomObservation],
+    };
+  };
+
   // Load profiles from localStorage on mount
   useEffect(() => {
     try {
@@ -15,13 +54,31 @@ export function useRoomProfiles() {
       if (raw) {
         const arr = JSON.parse(raw) as RoomProfile[];
         // Basic validation
-        if (Array.isArray(arr)) {
+        if (Array.isArray(arr) && arr.length > 0) {
           setProfiles(arr);
+        } else {
+          // Array is empty or invalid, initialize with defaults
+          const defaultBedroom = getDefaultBedroom();
+          setProfiles([defaultBedroom]);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
         }
+      } else {
+        // Initialize with default bedroom if localStorage is empty
+        const defaultBedroom = getDefaultBedroom();
+        setProfiles([defaultBedroom]);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
       }
       setLoaded(true);
     } catch (e) {
       console.error('Failed to load room profiles:', e);
+      // On error, initialize with defaults
+      const defaultBedroom = getDefaultBedroom();
+      setProfiles([defaultBedroom]);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
+      } catch (saveError) {
+        console.error('Failed to save default bedroom:', saveError);
+      }
       setLoaded(true);
     }
   }, []);

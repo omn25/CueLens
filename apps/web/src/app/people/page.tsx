@@ -1,7 +1,22 @@
+'use client';
+
+import { useState } from 'react';
 import Sidebar from '../components/Sidebar';
 import Link from 'next/link';
+import { usePeopleProfiles } from '@/hooks/usePeopleProfiles';
 
 export default function PeoplePage() {
+  const { people, removePerson } = usePeopleProfiles();
+  const [showDeleteMenu, setShowDeleteMenu] = useState<string | null>(null);
+
+  const totalPhotos = people.reduce((sum, person) => sum + person.photos.length, 0);
+
+  const handleDelete = (id: string, name: string) => {
+    if (confirm(`Are you sure you want to delete "${name}"?`)) {
+      removePerson(id);
+      setShowDeleteMenu(null);
+    }
+  };
   return (
     <div className="font-display bg-background-light dark:bg-background-dark text-slate-900 dark:text-white antialiased selection:bg-primary selection:text-white overflow-hidden">
       <div className="flex h-screen w-full">
@@ -38,195 +53,134 @@ export default function PeoplePage() {
               <div className="flex items-center gap-4 text-sm font-medium text-text-muted">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5">
                   <span className="material-symbols-outlined text-[18px]">face</span>
-                  <span>12 People</span>
+                  <span>{people.length} {people.length === 1 ? 'Person' : 'People'}</span>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5">
                   <span className="material-symbols-outlined text-[18px]">photo_library</span>
-                  <span>148 Ref Photos</span>
+                  <span>{totalPhotos} Ref {totalPhotos === 1 ? 'Photo' : 'Photos'}</span>
                 </div>
-                <div className="h-4 w-px bg-white/10 mx-2"></div>
-                <button className="hover:text-white transition-colors">Last Updated</button>
-                <span className="text-white/20">•</span>
-                <button className="hover:text-white transition-colors">A-Z</button>
               </div>
 
               {/* Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {/* Card 1: Sarah */}
-                <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
-                  <div className="aspect-[4/3] w-full overflow-hidden">
-                    <div
-                      className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-                      style={{
-                        backgroundImage:
-                          "url('https://lh3.googleusercontent.com/aida-public/AB6AXuDJ3Eu11JDAgIZeijcrEd1wAwnPAdgFzYXPrlob976f8-G8pEG-6_ZydObkXbG6I9C4-vnVoiBISJ63ldVImy7RKxmd8JUt-m_6iYBB9oYSuCTdi2N8wVD97Z-RoDpaaQY5cYxwGGE-l3SeyWozsB4Qog5lV6hQQu41-G_kBboUWeUs_y5sqW5RK5ucbS3mbAEF8-KtWGLLYy6pp5NlCmstdnJR6uX-_9WhEhNoOyUFQBw9BRadQUmR1nuEsTzu5g8ExiH1O0RVvQAv')",
-                      }}
-                    ></div>
-                  </div>
-                  <div className="flex flex-col p-5 gap-1">
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">Sarah</h3>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 text-[10px] font-bold uppercase tracking-wider text-text-muted border border-white/5 group-hover:border-primary/30 transition-colors">
-                        12 Photos
-                      </span>
+                {people.length === 0 ? (
+                  <div className="col-span-full flex flex-col items-center justify-center py-16">
+                    <div className="w-32 h-32 rounded-full bg-white/5 flex items-center justify-center mb-6">
+                      <span className="material-symbols-outlined text-6xl text-text-muted">person_off</span>
                     </div>
-                    <p className="text-primary font-medium text-sm">Daughter</p>
-                    <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-text-muted">
-                      <span className="material-symbols-outlined text-[16px] text-green-400">check_circle</span>
-                      <span>Recognition Active</span>
-                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">No people yet</h3>
+                    <p className="text-text-muted mb-6 text-center max-w-md">
+                      Start by adding a person to create your first profile.
+                    </p>
+                    <Link
+                      href="/people/add"
+                      className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:shadow-primary/20 transition-all"
+                    >
+                      <span className="material-symbols-outlined">add_circle</span>
+                      <span>Add Your First Person</span>
+                    </Link>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    {people.map((person) => {
+                      const primaryPhoto = person.photos.find((p) => p.angle === 'front') || person.photos[0];
+                      return (
+                        <div
+                          key={person.id}
+                          className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5"
+                        >
+                          <div className="absolute top-3 right-3 z-10">
+                            <div className="relative">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowDeleteMenu(showDeleteMenu === person.id ? null : person.id);
+                                }}
+                                className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                              </button>
+                              {showDeleteMenu === person.id && (
+                                <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-20">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDelete(person.id, person.name);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-2"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="aspect-[4/3] w-full overflow-hidden">
+                            {primaryPhoto ? (
+                              <div
+                                className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
+                                style={{
+                                  backgroundImage: `url(${primaryPhoto.dataUrl})`,
+                                }}
+                              ></div>
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-slate-800 flex items-center justify-center">
+                                <span className="material-symbols-outlined text-6xl text-text-muted">person</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col p-5 gap-1">
+                            <div className="flex justify-between items-start">
+                              <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">
+                                {person.name}
+                              </h3>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 text-[10px] font-bold uppercase tracking-wider text-text-muted border border-white/5 group-hover:border-primary/30 transition-colors">
+                                {person.photos.length} {person.photos.length === 1 ? 'Photo' : 'Photos'}
+                              </span>
+                            </div>
+                            {person.relationship && (
+                              <p className="text-primary font-medium text-sm">{person.relationship}</p>
+                            )}
+                            <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-text-muted">
+                              {person.recognitionActive ? (
+                                <>
+                                  <span className="material-symbols-outlined text-[16px] text-green-400">check_circle</span>
+                                  <span>Recognition Active</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="material-symbols-outlined text-[16px] text-yellow-500">warning</span>
+                                  <span>Needs more photos</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
 
-                {/* Card 2: Dr. Smith */}
-                <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
-                  <div className="aspect-[4/3] w-full overflow-hidden">
-                    <div
-                      className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-                      style={{
-                        backgroundImage:
-                          "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAZNwBo3jFnzw1DKNUk25aP2sLSJBRvlwF-LVlLk7dkAmwTe6lXrERaxc8ZU9OsU_8Hi35nlLosJ5NGC9I4VoY5BdAo_5DeQb5K6NC4_a7muNXRLFHD1wwoYWw9R_0oJB17s7B7gV85MZiYSgtDeNbcmQx_XCqPEG7jKQ469THBT-jG1jLXPXltPEEUktxh4tTPel26qt9CvXirDUVjuPkeTP4IVC8-R6LjCMLKWML8NFleVd3ZMpTJ5_KV2NztvnUhfvagESeCbwq5')",
-                      }}
-                    ></div>
-                  </div>
-                  <div className="flex flex-col p-5 gap-1">
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">
-                        Dr. Smith
-                      </h3>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 text-[10px] font-bold uppercase tracking-wider text-text-muted border border-white/5 group-hover:border-primary/30 transition-colors">
-                        4 Photos
-                      </span>
-                    </div>
-                    <p className="text-primary font-medium text-sm">General Practitioner</p>
-                    <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-text-muted">
-                      <span className="material-symbols-outlined text-[16px] text-green-400">check_circle</span>
-                      <span>Recognition Active</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 3: Tom */}
-                <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
-                  <div className="aspect-[4/3] w-full overflow-hidden">
-                    <div
-                      className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-                      style={{
-                        backgroundImage:
-                          "url('https://lh3.googleusercontent.com/aida-public/AB6AXuATwIS4Rr9LJDIMHyWemNzU9dqjhmHewg4WatnBiz9bv0cs7nVbWnpZv2FYaLLr0W7O4Ip619AZbxjdOkeCDArXG95h0bSNbKLy98ewpgjTTwQPndAruiYSoYBaYZUIBI-50Pv6zQTMGDucIoazWsjBoeym98-3Ip5K_cgJazB3m-zPftwenwD3Qapx_80C2K8vKEIR6dnb4Dz84csqiKnblvM4i1ZQsb9jfM-yuKDjMTEol6Ry5PZrJyxV3DtXOKYzKEnmUYxwmZmn')",
-                      }}
-                    ></div>
-                  </div>
-                  <div className="flex flex-col p-5 gap-1">
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">Tom</h3>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 text-[10px] font-bold uppercase tracking-wider text-text-muted border border-white/5 group-hover:border-primary/30 transition-colors">
-                        6 Photos
-                      </span>
-                    </div>
-                    <p className="text-primary font-medium text-sm">Neighbor (Next Door)</p>
-                    <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-text-muted">
-                      <span className="material-symbols-outlined text-[16px] text-yellow-500">warning</span>
-                      <span>Needs more photos</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 4: Grandma Joy */}
-                <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
-                  <div className="aspect-[4/3] w-full overflow-hidden">
-                    <div
-                      className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-                      style={{
-                        backgroundImage:
-                          "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAkPthCSALIvpFYYjh6Rpb_FAEEejlw7o79GzMJwdVoGNlFCdGCBMRU1cxrx-kNPPakL6r451jWIR1tLAvzD4w_mA97lpBoRqDI7NzUh_4QAsm-ZD6Z5B83GPL_7u_kcWGlcxZ6wmDG_sfsasl-poSqXzDFrCMtgS8ogznBCij6WN0qF3Y4EV1ahFeir1ZHjf0LNnBrRR8JkJr0ChXmz2Sb4WrDl-MPp5a3br5A10occEyp4O6fhZKbjaXue_P1_4lHdgBBVgUpMY5U')",
-                      }}
-                    ></div>
-                  </div>
-                  <div className="flex flex-col p-5 gap-1">
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">
-                        Grandma Joy
-                      </h3>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 text-[10px] font-bold uppercase tracking-wider text-text-muted border border-white/5 group-hover:border-primary/30 transition-colors">
-                        8 Photos
-                      </span>
-                    </div>
-                    <p className="text-primary font-medium text-sm">Sister</p>
-                    <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-text-muted">
-                      <span className="material-symbols-outlined text-[16px] text-green-400">check_circle</span>
-                      <span>Recognition Active</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 5: Michael */}
-                <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
-                  <div className="aspect-[4/3] w-full overflow-hidden">
-                    <div
-                      className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-                      style={{
-                        backgroundImage:
-                          "url('https://lh3.googleusercontent.com/aida-public/AB6AXuBFICNzwASq-j2afJJx1RVKApa1vno1LScm1cLKA2nN5knvSAh0saGL3AC7iUIRUDJki9gUUaNvNCJ0vBAmx-0vshdwHpt9X8u0xi99lb1AWhxH7lMrw4wtX0yiTo-j2crjKhIgwFyKazCtCMObfJKGJzUPoi_3MAgCgOOLg9p1OViE3wArquI3E0tSdJtFBPHJX2lWZH1L511o2rbsFVhX5tmZivbqQQ9PvQ3LlYNkbOETVCiR49bXw5ziyXT8FkCP74D-nDwY-wUz')",
-                      }}
-                    ></div>
-                  </div>
-                  <div className="flex flex-col p-5 gap-1">
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">Michael</h3>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 text-[10px] font-bold uppercase tracking-wider text-text-muted border border-white/5 group-hover:border-primary/30 transition-colors">
-                        5 Photos
-                      </span>
-                    </div>
-                    <p className="text-primary font-medium text-sm">Lawyer</p>
-                    <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-text-muted">
-                      <span className="material-symbols-outlined text-[16px] text-green-400">check_circle</span>
-                      <span>Recognition Active</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 6: Add Placeholder */}
-                <button className="group relative flex flex-col items-center justify-center bg-surface-dark/30 hover:bg-surface-dark border-2 border-dashed border-white/10 hover:border-primary/50 rounded-2xl overflow-hidden transition-all duration-300 min-h-[300px]">
-                  <div className="flex flex-col items-center gap-3 group-hover:scale-105 transition-transform duration-300">
-                    <div className="size-16 rounded-full bg-white/5 group-hover:bg-primary flex items-center justify-center transition-colors">
-                      <span className="material-symbols-outlined text-white/50 group-hover:text-white" style={{ fontSize: '32px' }}>
-                        person_add
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <span className="text-lg font-bold text-white/50 group-hover:text-white transition-colors">
-                        Add New Person
-                      </span>
-                      <span className="text-sm text-text-muted">Add photos to train CueLens</span>
-                    </div>
-                  </div>
-                </button>
+                    {/* Add Placeholder */}
+                    <Link
+                      href="/people/add"
+                      className="group relative flex flex-col items-center justify-center bg-surface-dark/30 hover:bg-surface-dark border-2 border-dashed border-white/10 hover:border-primary/50 rounded-2xl overflow-hidden transition-all duration-300 min-h-[300px]"
+                    >
+                      <div className="flex flex-col items-center gap-3 group-hover:scale-105 transition-transform duration-300">
+                        <div className="size-16 rounded-full bg-white/5 group-hover:bg-primary flex items-center justify-center transition-colors">
+                          <span className="material-symbols-outlined text-white/50 group-hover:text-white" style={{ fontSize: '32px' }}>
+                            person_add
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-lg font-bold text-white/50 group-hover:text-white transition-colors">
+                            Add New Person
+                          </span>
+                          <span className="text-sm text-text-muted">Add photos to train CueLens</span>
+                        </div>
+                      </div>
+                    </Link>
+                  </>
+                )}
               </div>
 
               {/* Bottom Tip */}
