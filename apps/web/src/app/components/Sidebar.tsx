@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 interface SidebarProps {
-  activePage?: 'live-vision' | 'places' | 'people' | 'settings';
+  activePage?: 'live-vision' | 'places' | 'people' | 'settings' | 'suggestions';
 }
 
 export default function Sidebar({ activePage = 'live-vision' }: SidebarProps) {
@@ -70,6 +70,24 @@ export default function Sidebar({ activePage = 'live-vision' }: SidebarProps) {
             </span>
             <span className={activePage === 'people' ? 'font-semibold text-sm' : 'font-medium text-sm'}>
               People
+            </span>
+          </Link>
+          <Link
+            href="/suggestions"
+            className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-colors ${
+              activePage === 'suggestions'
+                ? 'bg-primary/15 text-primary border border-primary/10'
+                : 'text-gray-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <span
+              className="material-symbols-outlined"
+              style={activePage === 'suggestions' ? { fontVariationSettings: "'FILL' 1" } : {}}
+            >
+              verified_user
+            </span>
+            <span className={activePage === 'suggestions' ? 'font-semibold text-sm' : 'font-medium text-sm'}>
+              Suggestions
             </span>
           </Link>
           <Link
