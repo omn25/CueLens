@@ -6,4 +6,4 @@
  */
 
 // Re-export all contracts
-export * from "./contracts";
+export * from "./contracts/index.js";
