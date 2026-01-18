@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function AddPersonPage() {
   return (
@@ -124,10 +125,13 @@ export default function AddPersonPage() {
                     </div>
                   </div>
                   {/* Main Video Image */}
-                  <img
+                  <Image
                     alt="Live camera feed showing a person's face"
                     className="w-full h-full object-cover opacity-80 mix-blend-overlay"
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuA_7zKLlKnOUeJlyQgz4vd_Z0QcPRmOKVRNecpv8zqoxXC4j8v59aTSu8bH_-tvqmpKcB8GCmvF4REM8OvGIv747vR-IA__W_2MyGfP3R6k4nWPFjbw0zZWld4xof76xNESONylemrsWQz-lKQFirXGrLuWKy7djXsYwymLoWjzlzN7sPy7bnxLbMeq9pvpCpYYMq8sKRRILGdouj5tA962-FT83f8R0zzpmydRcmjmuW9uU6ydUK3CnNJAy2NV4pxyQQAZZg1ldNLT"
+                    width={1280}
+                    height={960}
+                    unoptimized
                   />
                 </div>
 

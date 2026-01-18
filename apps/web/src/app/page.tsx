@@ -74,7 +74,7 @@ export default function Home() {
               </div>
               <div className="flex flex-col gap-1">
                 <p className="text-xl text-white font-medium leading-relaxed">
-                  You're in your bedroom. Everything is okay.
+                  You&apos;re in your bedroom. Everything is okay.
                 </p>
                 <p className="text-gray-400 text-sm">
                   It is 2:30 PM. Your daughter, Sarah, is visiting at 4:00 PM.

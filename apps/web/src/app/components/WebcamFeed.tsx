@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { findMatchingRoom } from '@/lib/roomComparison';
 import { getAllRooms } from '@/lib/roomStorage';
 import type { RoomData } from '@/lib/roomStorage';
@@ -13,9 +13,29 @@ export default function WebcamFeed() {
   const [overshootSummary, setOvershootSummary] = useState<string>('');
   const [recognizedRoom, setRecognizedRoom] = useState<{ room: RoomData; similarity: number } | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const visionRef = useRef<any>(null);
+  const visionRef = useRef<{ stop: () => Promise<void> } | null>(null);
   const lastCheckTimeRef = useRef<number>(0);
-  const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Check for room matches
+  const checkForRoomMatch = useCallback((description: string) => {
+    const savedRooms = getAllRooms();
+    if (savedRooms.length === 0) return;
+
+    const match = findMatchingRoom(description, savedRooms, 60);
+    
+    if (match) {
+      console.log('Room match found:', match.room.name, 'Similarity:', match.similarity);
+      setRecognizedRoom(match);
+    } else {
+      // Only clear if we had a match before (to avoid flickering)
+      setRecognizedRoom((prev) => {
+        if (prev) {
+          return null;
+        }
+        return prev;
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const initializeWebcam = async () => {
@@ -40,7 +60,7 @@ export default function WebcamFeed() {
           // Try multiple ways to access the env variable
           const apiKey = 
             process.env.NEXT_PUBLIC_OVERSHOOT_API_KEY ||
-            (typeof window !== 'undefined' && (window as any).__NEXT_DATA__?.env?.NEXT_PUBLIC_OVERSHOOT_API_KEY) ||
+            (typeof window !== 'undefined' && (window as { __NEXT_DATA__?: { env?: { NEXT_PUBLIC_OVERSHOOT_API_KEY?: string } } }).__NEXT_DATA__?.env?.NEXT_PUBLIC_OVERSHOOT_API_KEY) ||
             null;
           
           console.log('API Key check:', apiKey ? `Found (${apiKey.substring(0, 10)}...)` : 'Not found');
@@ -96,10 +116,11 @@ export default function WebcamFeed() {
           await vision.start();
           console.log('Overshoot started successfully. Stream ID:', vision.getStreamId());
           console.log('Overshoot is active:', vision.isActive());
-        } catch (overshootError: any) {
+        } catch (overshootError) {
           console.error('Failed to initialize Overshoot SDK:', overshootError);
-          console.error('Error details:', overshootError.message, overshootError.stack);
-          setOvershootSummary(`Failed to initialize: ${overshootError.message || 'Unknown error'}`);
+          const errorMessage = overshootError instanceof Error ? overshootError.message : 'Unknown error';
+          console.error('Error details:', errorMessage, overshootError instanceof Error ? overshootError.stack : '');
+          setOvershootSummary(`Failed to initialize: ${errorMessage}`);
           // Continue without Overshoot if SDK fails
         }
       } catch (err) {
@@ -118,34 +139,14 @@ export default function WebcamFeed() {
         streamRef.current = null;
       }
       if (visionRef.current) {
-        visionRef.current.stop().catch((err: any) => {
+        const vision = visionRef.current;
+        vision.stop().catch((err) => {
           console.error('Error stopping vision:', err);
         });
         visionRef.current = null;
       }
-      if (checkIntervalRef.current) {
-        clearInterval(checkIntervalRef.current);
-      }
     };
-  }, []);
-
-  // Check for room matches
-  const checkForRoomMatch = (description: string) => {
-    const savedRooms = getAllRooms();
-    if (savedRooms.length === 0) return;
-
-    const match = findMatchingRoom(description, savedRooms, 60);
-    
-    if (match) {
-      console.log('Room match found:', match.room.name, 'Similarity:', match.similarity);
-      setRecognizedRoom(match);
-    } else {
-      // Only clear if we had a match before (to avoid flickering)
-      if (recognizedRoom) {
-        setRecognizedRoom(null);
-      }
-    }
-  };
+  }, [checkForRoomMatch]);
 
   return (
     <div className="relative w-full h-full">

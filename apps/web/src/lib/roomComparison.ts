@@ -1,4 +1,5 @@
-import type { RoomFeatures, RoomData } from './roomStorage';
+import type { RoomData } from './roomStorage';
+import type { RoomFeatures } from './roomStorage';
 
 // Extract features from Overshoot description
 export function extractFeaturesFromDescription(description: string): RoomFeatures {
@@ -27,7 +28,7 @@ export function extractFeaturesFromDescription(description: string): RoomFeature
 
   // Extract wall color
   const wallColors = extractColors(lowerDesc, ['wall', 'paint']);
-  if (wallColors.length > 0) {
+  if (wallColors.length > 0 && wallColors[0]) {
     features.walls = {
       color: wallColors[0],
     };

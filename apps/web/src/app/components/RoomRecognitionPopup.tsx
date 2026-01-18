@@ -64,7 +64,7 @@ export default function RoomRecognitionPopup({ room, confidence, onDismiss }: Ro
           </div>
           <div className="flex flex-col gap-1">
             <p className="text-xl text-white font-medium leading-relaxed">
-              You're in {room.name}. Everything is okay.
+              You&apos;re in {room.name}. Everything is okay.
             </p>
             <p className="text-gray-400 text-sm">
               Room features matched: {Object.keys(room.features).length} categories identified

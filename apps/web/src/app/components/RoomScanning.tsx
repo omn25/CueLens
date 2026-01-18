@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { extractFeaturesFromDescription, type RoomFeatures } from '@/lib/roomComparison';
+import { extractFeaturesFromDescription } from '@/lib/roomComparison';
 import { saveRoom, type RoomData } from '@/lib/roomStorage';
 
 interface RoomScanningProps {
@@ -10,7 +10,7 @@ interface RoomScanningProps {
   onCancel: () => void;
 }
 
-export default function RoomScanning({ roomName, onComplete, onCancel }: RoomScanningProps) {
+export default function RoomScanning({ roomName, onComplete, onCancel: _onCancel }: RoomScanningProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
@@ -18,7 +18,7 @@ export default function RoomScanning({ roomName, onComplete, onCancel }: RoomSca
   const [collectedDescriptions, setCollectedDescriptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const visionRef = useRef<any>(null);
+  const visionRef = useRef<{ stop: () => Promise<void> } | null>(null);
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -121,9 +121,10 @@ export default function RoomScanning({ roomName, onComplete, onCancel }: RoomSca
           return prev + 10;
         });
       }, 1000);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error starting scan:', err);
-      setError(`Failed to start scanning: ${err.message || 'Unknown error'}`);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to start scanning: ${errorMessage}`);
     }
   };
 
