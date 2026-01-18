@@ -8,16 +8,16 @@ export function useRoomProfiles() {
   const [profiles, setProfiles] = useState<RoomProfile[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  // Default bedroom data
-  const getDefaultBedroom = (): RoomProfile => {
+  // Default lounge area data
+  const getDefaultLoungeArea = (): RoomProfile => {
     const now = Date.now();
-    const bedroomObservation: RoomObservation = {
-      room_type: 'bedroom',
+    const loungeObservation: RoomObservation = {
+      room_type: 'living_room',
       fixed_elements: {
         major_furniture: [
-          { name: 'bed', count: 1, attributes: ['queen size', 'wooden frame'] },
-          { name: 'dresser', count: 1, attributes: ['wooden', 'with mirror'] },
-          { name: 'nightstand', count: 2, attributes: ['wooden'] },
+          { name: 'sofa', count: 1, attributes: ['leather', 'three-seater'] },
+          { name: 'coffee table', count: 1, attributes: ['wooden', 'rectangular'] },
+          { name: 'armchair', count: 2, attributes: ['fabric'] },
         ],
         surfaces: {
           floor: { material: 'carpet', color: 'beige', pattern: 'solid' },
@@ -26,24 +26,24 @@ export function useRoomProfiles() {
         },
         lighting: [
           { type: 'ceiling light', count: 1, attributes: ['overhead', 'dimmable'] },
-          { type: 'table lamp', count: 2, attributes: ['bedside'] },
+          { type: 'table lamp', count: 2, attributes: ['side table'] },
         ],
         large_decor: [
           { name: 'window', attributes: ['curtains', 'north facing'] },
         ],
       },
       distinctive_markers: ['wooden furniture', 'beige carpet', 'white walls'],
-      summary: 'A comfortable bedroom with a queen bed, wooden furniture, beige carpet, and white walls. Features two bedside lamps and a dresser with mirror.',
+      summary: 'A comfortable lounge area with a leather sofa, wooden coffee table, fabric armchairs, beige carpet, and white walls. Features overhead lighting and side table lamps.',
     };
 
     return {
-      id: 'default-bedroom',
-      name: 'Bedroom',
-      note: 'Main bedroom',
+      id: 'default-lounge-area',
+      name: 'Lounge Area',
+      note: 'Main lounge area',
       createdAt: now,
       observationCount: 1,
-      profile: bedroomObservation,
-      rawObservations: [bedroomObservation],
+      profile: loungeObservation,
+      rawObservations: [loungeObservation],
     };
   };
 
@@ -58,26 +58,26 @@ export function useRoomProfiles() {
           setProfiles(arr);
         } else {
           // Array is empty or invalid, initialize with defaults
-          const defaultBedroom = getDefaultBedroom();
-          setProfiles([defaultBedroom]);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
+          const defaultLoungeArea = getDefaultLoungeArea();
+          setProfiles([defaultLoungeArea]);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultLoungeArea]));
         }
       } else {
-        // Initialize with default bedroom if localStorage is empty
-        const defaultBedroom = getDefaultBedroom();
-        setProfiles([defaultBedroom]);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
+        // Initialize with default lounge area if localStorage is empty
+        const defaultLoungeArea = getDefaultLoungeArea();
+        setProfiles([defaultLoungeArea]);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultLoungeArea]));
       }
       setLoaded(true);
     } catch (e) {
       console.error('Failed to load room profiles:', e);
       // On error, initialize with defaults
-      const defaultBedroom = getDefaultBedroom();
-      setProfiles([defaultBedroom]);
+      const defaultLoungeArea = getDefaultLoungeArea();
+      setProfiles([defaultLoungeArea]);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultLoungeArea]));
       } catch (saveError) {
-        console.error('Failed to save default bedroom:', saveError);
+        console.error('Failed to save default lounge area:', saveError);
       }
       setLoaded(true);
     }

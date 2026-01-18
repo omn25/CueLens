@@ -220,7 +220,8 @@ export default function PlacesPage() {
                              profile.profile?.room_type === 'office' ? 'work' :
                              'location_on'}
                           </span>
-                          {profile.profile?.room_type?.replace('_', ' ') || 'unknown room'}
+                          {profile.profile?.room_type === 'living_room' ? 'lounge area' :
+                           profile.profile?.room_type?.replace('_', ' ') || 'unknown room'}
                         </span>
                       </div>
                       {/* Observation Count Badge */}
