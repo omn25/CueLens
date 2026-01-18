@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import FontLoader from "./components/FontLoader";
+import { CaretakerModeProvider } from "./contexts/CaretakerModeContext";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-display",
@@ -25,7 +26,9 @@ export default function RootLayout({
         className={`${plusJakartaSans.variable} font-display antialiased bg-background-dark text-white`}
       >
         <FontLoader />
-        {children}
+        <CaretakerModeProvider>
+          {children}
+        </CaretakerModeProvider>
       </body>
     </html>
   );

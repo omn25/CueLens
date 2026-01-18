@@ -1,7 +1,11 @@
+'use client';
+
 import Sidebar from '../components/Sidebar';
 import Link from 'next/link';
+import { useCaretakerMode } from '../contexts/CaretakerModeContext';
 
 export default function PlacesPage() {
+  const { isCaretakerMode } = useCaretakerMode();
   return (
     <div className="bg-background-light dark:bg-background-dark text-slate-900 dark:text-white font-display h-screen flex overflow-hidden selection:bg-primary selection:text-white">
       {/* Sidebar Navigation */}
@@ -28,13 +32,15 @@ export default function PlacesPage() {
                   Manage recognized locations for orientation assistance.
                 </p>
               </div>
-              <Link
-                href="/places/capture"
-                className="flex items-center justify-center gap-2 bg-primary hover:bg-[#3a6280] text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:shadow-primary/20 transition-all active:scale-95 min-w-[160px]"
-              >
-                <span className="material-symbols-outlined">add_location_alt</span>
-                <span>Add Place</span>
-              </Link>
+              {isCaretakerMode && (
+                <Link
+                  href="/places/capture"
+                  className="flex items-center justify-center gap-2 bg-primary hover:bg-[#3a6280] text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:shadow-primary/20 transition-all active:scale-95 min-w-[160px]"
+                >
+                  <span className="material-symbols-outlined">add_location_alt</span>
+                  <span>Add Place</span>
+                </Link>
+              )}
             </div>
 
             {/* Filters and Search Toolbar */}
@@ -102,9 +108,11 @@ export default function PlacesPage() {
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">
                       Living Room
                     </h3>
-                    <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
-                      <span className="material-symbols-outlined">more_horiz</span>
-                    </button>
+                    {isCaretakerMode && (
+                      <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
+                        <span className="material-symbols-outlined">more_horiz</span>
+                      </button>
+                    )}
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 line-clamp-2">
                     Main orientation point. Includes sofa and TV area markers.
@@ -150,9 +158,11 @@ export default function PlacesPage() {
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">
                       Dr. Smith&apos;s Waiting Room
                     </h3>
-                    <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
-                      <span className="material-symbols-outlined">more_horiz</span>
-                    </button>
+                    {isCaretakerMode && (
+                      <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
+                        <span className="material-symbols-outlined">more_horiz</span>
+                      </button>
+                    )}
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 line-clamp-2">
                     Low light conditions often detected. Assistance may be needed.
@@ -198,9 +208,11 @@ export default function PlacesPage() {
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">
                       Kitchen
                     </h3>
-                    <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
-                      <span className="material-symbols-outlined">more_horiz</span>
-                    </button>
+                    {isCaretakerMode && (
+                      <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
+                        <span className="material-symbols-outlined">more_horiz</span>
+                      </button>
+                    )}
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 line-clamp-2">
                     High recognition confidence. Contains fridge and stove markers.
@@ -246,9 +258,11 @@ export default function PlacesPage() {
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">
                       Community Center
                     </h3>
-                    <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
-                      <span className="material-symbols-outlined">more_horiz</span>
-                    </button>
+                    {isCaretakerMode && (
+                      <button className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors">
+                        <span className="material-symbols-outlined">more_horiz</span>
+                      </button>
+                    )}
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 line-clamp-2">
                     Recreation room. Last visual map update was successful.
@@ -266,20 +280,22 @@ export default function PlacesPage() {
                 </div>
               </div>
 
-              {/* Add New Card Placeholder */}
-              <div className="group bg-slate-50 dark:bg-card-dark/30 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-primary/50 dark:hover:border-primary/50 hover:bg-slate-100 dark:hover:bg-card-dark/50 transition-all cursor-pointer flex flex-col items-center justify-center p-8 min-h-[360px]">
-                <div className="w-16 h-16 rounded-full bg-slate-200 dark:bg-slate-700/50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <span className="material-symbols-outlined text-slate-400 group-hover:text-primary text-3xl">
-                    add_a_photo
-                  </span>
+              {/* Add New Card Placeholder - Only show in caretaker mode */}
+              {isCaretakerMode && (
+                <div className="group bg-slate-50 dark:bg-card-dark/30 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-primary/50 dark:hover:border-primary/50 hover:bg-slate-100 dark:hover:bg-card-dark/50 transition-all cursor-pointer flex flex-col items-center justify-center p-8 min-h-[360px]">
+                  <div className="w-16 h-16 rounded-full bg-slate-200 dark:bg-slate-700/50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <span className="material-symbols-outlined text-slate-400 group-hover:text-primary text-3xl">
+                      add_a_photo
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 group-hover:text-primary mb-1">
+                    Add New Place
+                  </h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-500 text-center max-w-[200px]">
+                    Capture a new room or location to assist with orientation.
+                  </p>
                 </div>
-                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 group-hover:text-primary mb-1">
-                  Add New Place
-                </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-500 text-center max-w-[200px]">
-                  Capture a new room or location to assist with orientation.
-                </p>
-              </div>
+              )}
             </div>
           </div>
         </div>

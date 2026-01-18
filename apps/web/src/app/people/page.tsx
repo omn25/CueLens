@@ -1,7 +1,11 @@
+'use client';
+
 import Sidebar from '../components/Sidebar';
 import Link from 'next/link';
+import { useCaretakerMode } from '../contexts/CaretakerModeContext';
 
 export default function PeoplePage() {
+  const { isCaretakerMode } = useCaretakerMode();
   return (
     <div className="font-display bg-background-light dark:bg-background-dark text-slate-900 dark:text-white antialiased selection:bg-primary selection:text-white overflow-hidden">
       <div className="flex h-screen w-full">
@@ -25,13 +29,15 @@ export default function PeoplePage() {
                     recognition accuracy.
                   </p>
                 </div>
-                <Link
-                  href="/people/add"
-                  className="group flex items-center justify-center gap-2 h-12 px-6 bg-primary hover:bg-primary-dark text-white text-base font-bold rounded-xl shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all duration-200 whitespace-nowrap"
-                >
-                  <span className="material-symbols-outlined">add_circle</span>
-                  <span>Add Person</span>
-                </Link>
+                {isCaretakerMode && (
+                  <Link
+                    href="/people/add"
+                    className="group flex items-center justify-center gap-2 h-12 px-6 bg-primary hover:bg-primary-dark text-white text-base font-bold rounded-xl shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all duration-200 whitespace-nowrap"
+                  >
+                    <span className="material-symbols-outlined">add_circle</span>
+                    <span>Add Person</span>
+                  </Link>
+                )}
               </header>
 
               {/* Stats / Filters (Optional Context Bar) */}
@@ -54,11 +60,13 @@ export default function PeoplePage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {/* Card 1: Sarah */}
                 <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
+                  {isCaretakerMode && (
+                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
+                        <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="aspect-[4/3] w-full overflow-hidden">
                     <div
                       className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
@@ -85,11 +93,13 @@ export default function PeoplePage() {
 
                 {/* Card 2: Dr. Smith */}
                 <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
+                  {isCaretakerMode && (
+                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
+                        <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="aspect-[4/3] w-full overflow-hidden">
                     <div
                       className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
@@ -118,11 +128,13 @@ export default function PeoplePage() {
 
                 {/* Card 3: Tom */}
                 <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
+                  {isCaretakerMode && (
+                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
+                        <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="aspect-[4/3] w-full overflow-hidden">
                     <div
                       className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
@@ -149,11 +161,13 @@ export default function PeoplePage() {
 
                 {/* Card 4: Grandma Joy */}
                 <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
+                  {isCaretakerMode && (
+                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
+                        <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="aspect-[4/3] w-full overflow-hidden">
                     <div
                       className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
@@ -182,11 +196,13 @@ export default function PeoplePage() {
 
                 {/* Card 5: Michael */}
                 <div className="group relative flex flex-col bg-surface-dark hover:bg-[#3d4248] rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 border border-white/5">
-                  <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
-                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                    </button>
-                  </div>
+                  {isCaretakerMode && (
+                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="size-8 flex items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 backdrop-blur-sm">
+                        <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="aspect-[4/3] w-full overflow-hidden">
                     <div
                       className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
@@ -211,22 +227,24 @@ export default function PeoplePage() {
                   </div>
                 </div>
 
-                {/* Card 6: Add Placeholder */}
-                <button className="group relative flex flex-col items-center justify-center bg-surface-dark/30 hover:bg-surface-dark border-2 border-dashed border-white/10 hover:border-primary/50 rounded-2xl overflow-hidden transition-all duration-300 min-h-[300px]">
-                  <div className="flex flex-col items-center gap-3 group-hover:scale-105 transition-transform duration-300">
-                    <div className="size-16 rounded-full bg-white/5 group-hover:bg-primary flex items-center justify-center transition-colors">
-                      <span className="material-symbols-outlined text-white/50 group-hover:text-white" style={{ fontSize: '32px' }}>
-                        person_add
-                      </span>
+                {/* Card 6: Add Placeholder - Only show in caretaker mode */}
+                {isCaretakerMode && (
+                  <button className="group relative flex flex-col items-center justify-center bg-surface-dark/30 hover:bg-surface-dark border-2 border-dashed border-white/10 hover:border-primary/50 rounded-2xl overflow-hidden transition-all duration-300 min-h-[300px]">
+                    <div className="flex flex-col items-center gap-3 group-hover:scale-105 transition-transform duration-300">
+                      <div className="size-16 rounded-full bg-white/5 group-hover:bg-primary flex items-center justify-center transition-colors">
+                        <span className="material-symbols-outlined text-white/50 group-hover:text-white" style={{ fontSize: '32px' }}>
+                          person_add
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <span className="text-lg font-bold text-white/50 group-hover:text-white transition-colors">
+                          Add New Person
+                        </span>
+                        <span className="text-sm text-text-muted">Add photos to train CueLens</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col items-center">
-                      <span className="text-lg font-bold text-white/50 group-hover:text-white transition-colors">
-                        Add New Person
-                      </span>
-                      <span className="text-sm text-text-muted">Add photos to train CueLens</span>
-                    </div>
-                  </div>
-                </button>
+                  </button>
+                )}
               </div>
 
               {/* Bottom Tip */}
