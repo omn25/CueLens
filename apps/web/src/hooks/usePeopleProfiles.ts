@@ -7,6 +7,43 @@ export function usePeopleProfiles() {
   const [people, setPeople] = useState<Person[]>([]);
   const [loaded, setLoaded] = useState(false);
 
+  // Default people data
+  const getDefaultPeople = (): Person[] => {
+    const now = Date.now();
+    return [
+      {
+        id: 'default-om',
+        name: 'Om',
+        relationship: 'Brother',
+        note: '',
+        photos: [],
+        createdAt: now,
+        updatedAt: now,
+        recognitionActive: false,
+      },
+      {
+        id: 'default-keeret',
+        name: 'Keeret',
+        relationship: 'Brother',
+        note: '',
+        photos: [],
+        createdAt: now,
+        updatedAt: now,
+        recognitionActive: false,
+      },
+      {
+        id: 'default-michael',
+        name: 'Michael',
+        relationship: 'Brother',
+        note: '',
+        photos: [],
+        createdAt: now,
+        updatedAt: now,
+        recognitionActive: false,
+      },
+    ];
+  };
+
   // Load people from localStorage on mount
   useEffect(() => {
     try {
@@ -14,13 +51,31 @@ export function usePeopleProfiles() {
       if (raw) {
         const arr = JSON.parse(raw) as Person[];
         // Basic validation
-        if (Array.isArray(arr)) {
+        if (Array.isArray(arr) && arr.length > 0) {
           setPeople(arr);
+        } else {
+          // Array is empty or invalid, initialize with defaults
+          const defaultPeople = getDefaultPeople();
+          setPeople(defaultPeople);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultPeople));
         }
+      } else {
+        // Initialize with default people if localStorage is empty
+        const defaultPeople = getDefaultPeople();
+        setPeople(defaultPeople);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultPeople));
       }
       setLoaded(true);
     } catch (e) {
       console.error('Failed to load people profiles:', e);
+      // On error, initialize with defaults
+      const defaultPeople = getDefaultPeople();
+      setPeople(defaultPeople);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultPeople));
+      } catch (saveError) {
+        console.error('Failed to save default people:', saveError);
+      }
       setLoaded(true);
     }
   }, []);

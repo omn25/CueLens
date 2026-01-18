@@ -14,7 +14,7 @@ export default function WebcamFeed() {
   const [error, setError] = useState<string | null>(null);
   const [liveObservation, setLiveObservation] = useState<RoomObservation | null>(null);
   const [detectedRoom, setDetectedRoom] = useState<{ name: string; score: number } | null>(null);
-  const [showFullOutput, setShowFullOutput] = useState(true); // Default to showing full JSON
+  const [showFullOutput, setShowFullOutput] = useState(false); // Default to minimized (summary view)
   const streamRef = useRef<MediaStream | null>(null);
   
   // Stability buffer for consecutive matches
@@ -105,72 +105,110 @@ export default function WebcamFeed() {
   });
 
 
+  // Track the last stream ID to prevent unnecessary updates
+  const lastStreamIdRef = useRef<string | null>(null);
+  const isInitializingRef = useRef(false);
+  const directWebcamStreamRef = useRef<MediaStream | null>(null);
+
   // Use Overshoot's stream or fallback to direct webcam for video display
   useEffect(() => {
     let mounted = true;
-    let directWebcamStream: MediaStream | null = null;
+    let checkInterval: NodeJS.Timeout | null = null;
 
     const updateVideoStream = async () => {
+      if (!mounted || !videoRef.current || isInitializingRef.current) return;
+
       // First try to get Overshoot's stream (if available)
       const overshootStream = getMediaStream();
-      if (overshootStream && videoRef.current && mounted) {
-        // Only update if stream changed
-        if (videoRef.current.srcObject !== overshootStream) {
+      const currentStream = videoRef.current.srcObject as MediaStream | null;
+      const currentStreamId = currentStream?.id || null;
+
+      if (overshootStream && mounted && videoRef.current) {
+        const overshootStreamId = overshootStream.id;
+        
+        // Only update if stream actually changed (by ID, not by reference)
+        if (currentStreamId !== overshootStreamId && lastStreamIdRef.current !== overshootStreamId) {
+          isInitializingRef.current = true;
           console.log('[WebcamFeed] ✅ Setting Overshoot stream to video element');
+          
           // Stop direct webcam stream if we have Overshoot stream
-          if (directWebcamStream && directWebcamStream !== overshootStream) {
-            directWebcamStream.getTracks().forEach(track => track.stop());
-            directWebcamStream = null;
+          if (directWebcamStreamRef.current && directWebcamStreamRef.current.id !== overshootStreamId) {
+            directWebcamStreamRef.current.getTracks().forEach(track => track.stop());
+            directWebcamStreamRef.current = null;
           }
-          videoRef.current.srcObject = overshootStream;
-          videoRef.current.play().catch((err) => {
-            console.error('[WebcamFeed] Error playing video:', err);
-          });
-          streamRef.current = overshootStream;
-          setIsStreaming(true);
+          
+          try {
+            videoRef.current.srcObject = overshootStream;
+            await videoRef.current.play();
+            streamRef.current = overshootStream;
+            lastStreamIdRef.current = overshootStreamId;
+            setIsStreaming(true);
+            setError(null);
+          } catch (err) {
+            console.error('[WebcamFeed] Error setting stream:', err);
+          } finally {
+            isInitializingRef.current = false;
+          }
         }
         return;
       }
 
-      // Fallback: If no Overshoot stream, always try to get direct webcam access
-      if (!overshootStream && mounted && !directWebcamStream) {
+      // Fallback: If no Overshoot stream and we don't have a stream, get direct webcam access
+      if (!overshootStream && mounted && !directWebcamStreamRef.current && !currentStream && !streamRef.current && !isInitializingRef.current) {
+        isInitializingRef.current = true;
         try {
-          directWebcamStream = await navigator.mediaDevices.getUserMedia({
+          const directWebcamStream = await navigator.mediaDevices.getUserMedia({
             video: { width: 1280, height: 720, facingMode: 'user' },
           });
           
           if (videoRef.current && mounted) {
-            videoRef.current.srcObject = directWebcamStream;
-            videoRef.current.play().catch((err) => {
-              console.error('[WebcamFeed] Error playing video:', err);
-            });
-            streamRef.current = directWebcamStream;
-            setIsStreaming(true);
+            const streamId = directWebcamStream.id;
+            // Only set if we don't already have this stream
+            if (lastStreamIdRef.current !== streamId && !videoRef.current.srcObject) {
+              videoRef.current.srcObject = directWebcamStream;
+              await videoRef.current.play();
+              streamRef.current = directWebcamStream;
+              directWebcamStreamRef.current = directWebcamStream;
+              lastStreamIdRef.current = streamId;
+              setIsStreaming(true);
+              setError(null);
+            } else {
+              // Stream already set, just stop the new one
+              directWebcamStream.getTracks().forEach(track => track.stop());
+            }
           }
         } catch (err) {
           console.error('[WebcamFeed] ❌ Failed to get webcam stream:', err);
-          setError('Camera access denied or unavailable. Please allow camera access.');
+          // Only set error if we don't already have a stream
+          if (!streamRef.current) {
+            setError('Camera access denied or unavailable. Please allow camera access.');
+          }
+        } finally {
+          isInitializingRef.current = false;
         }
       }
     };
 
-    // Try immediately
+    // Initial setup - try once
     updateVideoStream();
     
-    // Also try once more after a short delay in case stream becomes available
-    const timeout = setTimeout(() => {
-      if (mounted) {
+    // Check periodically but less frequently to avoid flickering
+    checkInterval = setInterval(() => {
+      if (mounted && !isInitializingRef.current) {
         updateVideoStream();
       }
-    }, 1000);
+    }, 3000); // Check every 3 seconds
     
     return () => {
       mounted = false;
-      clearTimeout(timeout);
+      isInitializingRef.current = false;
+      if (checkInterval) {
+        clearInterval(checkInterval);
+      }
       // Clean up direct webcam stream if it exists
-      if (directWebcamStream) {
-        directWebcamStream.getTracks().forEach(track => track.stop());
-        directWebcamStream = null;
+      if (directWebcamStreamRef.current) {
+        directWebcamStreamRef.current.getTracks().forEach(track => track.stop());
+        directWebcamStreamRef.current = null;
       }
     };
   }, [visionActive, getMediaStream]);
@@ -195,19 +233,27 @@ export default function WebcamFeed() {
                                     visionError.includes('PeerConnection') ||
                                     visionError.includes('Cannot create so many');
       
-      // Only show critical errors (like camera access denied), not API/connection errors
-      if (!isApiKeyError && !isPeerConnectionError) {
+      const isCameraError = visionError.includes('Camera access denied') ||
+                           visionError.includes('camera access') ||
+                           visionError.includes('Permission denied');
+      
+      // Don't show errors if we have a working stream, or if it's an API/connection error
+      if (isStreaming) {
+        // Camera is working, clear any errors
+        setError(null);
+      } else if (!isApiKeyError && !isPeerConnectionError && !isCameraError) {
+        // Only show non-camera, non-API errors if we don't have a stream
         console.error('[WebcamFeed] Vision error:', visionError);
         setError(`Vision error: ${visionError}`);
       } else {
-        // API/connection error but we have fallback - just clear any existing error
+        // API/connection/camera errors - don't show if we have fallback or if camera is working
         setError(null);
       }
     } else {
       // Clear error when visionError is cleared
       setError(null);
     }
-  }, [visionError]);
+  }, [visionError, isStreaming]);
 
   // Modal handler
   const handleDismissModal = useCallback(() => {
@@ -224,6 +270,12 @@ export default function WebcamFeed() {
         muted
         className="absolute inset-0 w-full h-full object-cover"
         style={{ transform: 'scaleX(-1)' }} // Mirror the video
+        onLoadedMetadata={() => {
+          // Ensure video plays when metadata is loaded
+          if (videoRef.current) {
+            videoRef.current.play().catch(console.error);
+          }
+        }}
       />
 
       {/* Gradient Overlay */}
@@ -371,16 +423,6 @@ export default function WebcamFeed() {
             >
               Dismiss
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Loading State */}
-      {!isStreaming && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="flex flex-col items-center gap-3">
-            <div className="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-white font-medium">Initializing camera...</p>
           </div>
         </div>
       )}

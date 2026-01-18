@@ -1,7 +1,7 @@
 export interface PersonPhoto {
   id: string;
   dataUrl: string; // Base64 data URL for the image
-  angle: 'front' | 'left' | 'right';
+  angle: 'front';
   capturedAt: number;
 }
 
