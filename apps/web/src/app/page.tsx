@@ -46,7 +46,7 @@ export default function Home() {
                     Location Identified
                   </span>
                 </div>
-                <h2 className="text-xl font-bold text-white tracking-tight">Home – Bedroom</h2>
+                <h2 className="text-xl font-bold text-white tracking-tight">CueLens</h2>
               </div>
               <div className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-end">

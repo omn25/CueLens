@@ -107,16 +107,12 @@ export default function Sidebar({ activePage = 'live-vision' }: SidebarProps) {
       </div>
       <div className="mt-auto p-6 border-t border-white/5">
         <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5">
-          <div
-            className="size-10 rounded-full bg-cover bg-center shrink-0"
-            style={{
-              backgroundImage:
-                "url('https://lh3.googleusercontent.com/aida-public/AB6AXuB37SbgebeFpVQM3gTbyVMsZNN3ov2Iz9ZkDaKyKtG-IpeE-pby1vC-eu22ty8560U9tX69imTfZJNz4W1bGf8nnsoY3JyGeKwaMcNK36tPhRfrNwNGlkWd53Ah801SK6ZPNXl23m1bcQQ0j2f33FDyIkdVcnVeFS899-2CTpXdiopBywbo-BbewLurnxTZV2NDkgERz2lKMXIrNU7HE-OOs7mi65IZmv1oAVmo1PTVUqFey2VylosGZGrGf6_n4cvrVufGgpWlBXJx')",
-            }}
-          />
+          <div className="size-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0 border border-primary/30">
+            <span className="material-symbols-outlined text-primary text-xl">person</span>
+          </div>
           <div className="flex flex-col min-w-0">
-            <p className="text-white text-sm font-semibold truncate">Arthur Dent</p>
-            <p className="text-gray-400 text-xs truncate">arthur@cuelens.app</p>
+            <p className="text-white text-sm font-semibold truncate">CueLens</p>
+            <p className="text-gray-400 text-xs truncate">hello@cuelens.app</p>
           </div>
           <button className="ml-auto text-gray-400 hover:text-white">
             <span className="material-symbols-outlined text-[20px]">logout</span>

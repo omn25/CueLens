@@ -8,42 +8,71 @@ export function useRoomProfiles() {
   const [profiles, setProfiles] = useState<RoomProfile[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  // Default bedroom data
-  const getDefaultBedroom = (): RoomProfile => {
+  // Default office data
+  const getDefaultOffice = (): RoomProfile => {
     const now = Date.now();
-    const bedroomObservation: RoomObservation = {
-      room_type: 'bedroom',
+    const officeObservation: RoomObservation = {
+      room_type: 'office',
       fixed_elements: {
         major_furniture: [
-          { name: 'bed', count: 1, attributes: ['queen size', 'wooden frame'] },
-          { name: 'dresser', count: 1, attributes: ['wooden', 'with mirror'] },
-          { name: 'nightstand', count: 2, attributes: ['wooden'] },
+          { name: 'desk', count: 5, attributes: ['wood', 'rectangular', 'office style'] },
+          { name: 'table', count: 8, attributes: ['wood', 'large', 'workspace'] },
+          { name: 'conference table', count: 1, attributes: ['large', 'oval', 'wood'] },
+          { name: 'chair', count: 12, attributes: ['office chair', 'rolling', 'black'] },
+          { name: 'filing cabinet', count: 3, attributes: ['metal', 'gray', 'tall'] },
+          { name: 'bookshelf', count: 2, attributes: ['wood', 'tall', 'wall mounted'] },
         ],
         surfaces: {
-          floor: { material: 'carpet', color: 'beige', pattern: 'solid' },
-          walls: { color: 'white', pattern: 'smooth' },
-          ceiling: { color: 'white' },
+          floor: {
+            material: 'tile',
+            color: 'gray',
+            pattern: 'square tiles',
+          },
+          walls: {
+            color: 'white',
+            pattern: 'smooth',
+          },
+          ceiling: {
+            color: 'white',
+          },
         },
         lighting: [
-          { type: 'ceiling light', count: 1, attributes: ['overhead', 'dimmable'] },
-          { type: 'table lamp', count: 2, attributes: ['bedside'] },
+          {
+            type: 'fluorescent light',
+            count: 6,
+            attributes: ['ceiling mounted', 'bright', 'white'],
+          },
+          {
+            type: 'desk lamp',
+            count: 5,
+            attributes: ['adjustable', 'LED'],
+          },
         ],
         large_decor: [
-          { name: 'window', attributes: ['curtains', 'north facing'] },
+          { name: 'whiteboard', attributes: ['wall mounted', 'large'] },
+          { name: 'whiteboard', attributes: ['mobile', 'small'] },
+          { name: 'monitor', attributes: ['wall mounted', 'display screen'] },
         ],
       },
-      distinctive_markers: ['wooden furniture', 'beige carpet', 'white walls'],
-      summary: 'A comfortable bedroom with a queen bed, wooden furniture, beige carpet, and white walls. Features two bedside lamps and a dresser with mirror.',
+      distinctive_markers: [
+        'Multiple desks arranged in rows',
+        'Conference table in center',
+        'Whiteboard on wall',
+        'Fluorescent lighting overhead',
+        'Many office chairs',
+        'Cable management visible',
+      ],
+      summary: 'This is an office space with many tables - 5 desks, 8 workspace tables, and 1 large conference table. The room has fluorescent lighting, white walls, and gray tile floors. There are 12 office chairs and various office furniture throughout.',
     };
 
     return {
-      id: 'default-bedroom',
-      name: 'Bedroom',
-      note: 'Main bedroom',
+      id: 'default-office',
+      name: 'Office 1',
+      note: 'Main office',
       createdAt: now,
       observationCount: 1,
-      profile: bedroomObservation,
-      rawObservations: [bedroomObservation],
+      profile: officeObservation,
+      rawObservations: [officeObservation],
     };
   };
 
@@ -58,24 +87,24 @@ export function useRoomProfiles() {
           setProfiles(arr);
         } else {
           // Array is empty or invalid, initialize with defaults
-          const defaultBedroom = getDefaultBedroom();
-          setProfiles([defaultBedroom]);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
+          const defaultOffice = getDefaultOffice();
+          setProfiles([defaultOffice]);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultOffice]));
         }
       } else {
-        // Initialize with default bedroom if localStorage is empty
-        const defaultBedroom = getDefaultBedroom();
-        setProfiles([defaultBedroom]);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
+        // Initialize with default office if localStorage is empty
+        const defaultOffice = getDefaultOffice();
+        setProfiles([defaultOffice]);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultOffice]));
       }
       setLoaded(true);
     } catch (e) {
       console.error('Failed to load room profiles:', e);
       // On error, initialize with defaults
-      const defaultBedroom = getDefaultBedroom();
-      setProfiles([defaultBedroom]);
+      const defaultOffice = getDefaultOffice();
+      setProfiles([defaultOffice]);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultBedroom]));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultOffice]));
       } catch (saveError) {
         console.error('Failed to save default bedroom:', saveError);
       }
