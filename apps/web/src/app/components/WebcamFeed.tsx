@@ -143,7 +143,7 @@ export default function WebcamFeed() {
       // Only switch streams if we really need to (prevents camera from turning off)
       if (currentStream && currentStream.active && currentStream.getVideoTracks().length > 0) {
         const videoTrack = currentStream.getVideoTracks()[0];
-        if (videoTrack.readyState === 'live') {
+        if (videoTrack && videoTrack.readyState === 'live') {
           // Stream is active and working - don't touch it unless we need to switch to Overshoot
           if (overshootStream && overshootStream.id !== currentStreamId && lastStreamIdRef.current !== overshootStream.id) {
             // Only switch if we have a different Overshoot stream

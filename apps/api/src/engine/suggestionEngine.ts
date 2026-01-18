@@ -471,11 +471,11 @@ export function generateSuggestionsFromTranscript(
       continue;
     }
     
-    // Check if uncertain match (same name but different person - would need face comparison)
-    // For now, if we have both name and frame, we could flag it, but since we're skipping exact matches,
-    // this would only happen if there's ambiguity we can't resolve yet
-    let duplicateFlag = false;
-    // Future: Add face comparison logic here to set duplicateFlag if uncertain
+                // Check if uncertain match (same name but different person - would need face comparison)
+                // For now, if we have both name and frame, we could flag it, but since we're skipping exact matches,
+                // this would only happen if there's ambiguity we can't resolve yet
+                const duplicateFlag = false;
+                // Future: Add face comparison logic here to set duplicateFlag if uncertain
     
     const confidence = calculateConfidence(
       transcript,

@@ -47,7 +47,7 @@ export default function AddPersonPage() {
           const currentStream = videoRef.current.srcObject as MediaStream;
           if (currentStream.active && currentStream.getVideoTracks().length > 0) {
             const videoTrack = currentStream.getVideoTracks()[0];
-            if (videoTrack.readyState === 'live') {
+            if (videoTrack && videoTrack.readyState === 'live') {
               // Stream is already active - just ensure it's playing
               if (videoRef.current.paused) {
                 videoRef.current.play().catch(console.error);
