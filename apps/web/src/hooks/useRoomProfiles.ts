@@ -101,6 +101,7 @@ export function useRoomProfiles() {
       }
 
       // Basic validation - ensure each item has required fields
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const validProfiles = arr.filter((p: any) => {
         return (
           p &&

@@ -15,7 +15,7 @@ export default function CapturePage() {
   const router = useRouter();
   const { addProfile } = useRoomProfiles();
   const [scanState, setScanState] = useState<ScanState>('idle'); // Start with choice
-  const [mode, setMode] = useState<'upload' | 'live'>('upload'); // Default to upload
+  const [_mode, setMode] = useState<'upload' | 'live'>('upload'); // Default to upload
   const [observations, setObservations] = useState<RoomObservation[]>([]);
   const [aggregated, setAggregated] = useState<RoomObservation | null>(null);
   const [savedRoomName, setSavedRoomName] = useState<string>('');

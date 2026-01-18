@@ -201,19 +201,6 @@ export default function RoomScanCapture({ onComplete, onCancel, showStartButton 
     }
   }, [visionError]);
 
-  const finishScanning = useCallback(() => {
-    setIsScanning(false);
-
-    if (observations.length === 0) {
-      setError('No observations collected. Please try again.');
-      return;
-    }
-
-    // Aggregate observations
-    const aggregated = aggregateObservations(observations);
-    onComplete(observations, aggregated);
-  }, [observations, onComplete]);
-
   const startScanning = useCallback(() => {
     if (isScanning) return; // Prevent multiple starts
 

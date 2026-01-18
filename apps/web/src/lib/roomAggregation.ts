@@ -26,8 +26,16 @@ function median(nums: number[]): number {
   if (nums.length === 0) return 0;
   const s = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
-  if (s.length % 2 === 1) return s[mid];
-  return Math.round((s[mid - 1] + s[mid]) / 2);
+  if (s.length % 2 === 1) {
+    const value = s[mid];
+    return value !== undefined ? value : 0;
+  }
+  const mid1 = s[mid - 1];
+  const mid2 = s[mid];
+  if (mid1 !== undefined && mid2 !== undefined) {
+    return Math.round((mid1 + mid2) / 2);
+  }
+  return 0;
 }
 
 export function aggregateObservations(obs: RoomObservation[]): RoomObservation {

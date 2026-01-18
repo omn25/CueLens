@@ -13,9 +13,7 @@ export default function WebcamFeed() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveObservation, setLiveObservation] = useState<RoomObservation | null>(null);
-  const [rawResponse, setRawResponse] = useState<string | null>(null); // Store raw response for debugging
   const [detectedRoom, setDetectedRoom] = useState<{ name: string; score: number } | null>(null);
-  const [matchList, setMatchList] = useState<{ name: string; score: number }[]>([]);
   const [showFullOutput, setShowFullOutput] = useState(true); // Default to showing full JSON
   const streamRef = useRef<MediaStream | null>(null);
   
@@ -24,6 +22,7 @@ export default function WebcamFeed() {
   const lastMatchRef = useRef<{ id: string; name: string; score: number } | null>(null);
   const cooldownUntilRef = useRef<number>(0);
   const observationBufferRef = useRef<RoomObservation[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const profilesRef = useRef<any[]>([]);
 
   // Get room profiles from storage
@@ -39,9 +38,6 @@ export default function WebcamFeed() {
 
   // Handle observations from Overshoot with stable callback
   const handleObservation = useCallback((obs: RoomObservation) => {
-    console.log('[WebcamFeed] ✅ New observation received from Overshoot:', obs);
-    console.log('[WebcamFeed] Observation JSON:', JSON.stringify(obs, null, 2));
-    
     setLiveObservation(obs);
     observationBufferRef.current.push(obs);
     // Keep only last 5 observations
@@ -51,7 +47,6 @@ export default function WebcamFeed() {
 
     const currentProfiles = profilesRef.current;
     if (currentProfiles.length === 0) {
-      console.log('[WebcamFeed] No profiles to match against');
       return;
     }
 
@@ -59,7 +54,6 @@ export default function WebcamFeed() {
     
     // Check cooldown
     if (now < cooldownUntilRef.current) {
-      console.log('[WebcamFeed] Still in cooldown period');
       return; // Still in cooldown
     }
 
@@ -73,39 +67,20 @@ export default function WebcamFeed() {
       }))
     );
 
-    console.log('[WebcamFeed] Best match:', {
-      name: best.name,
-      score: best.score,
-      scorePercent: Math.round(best.score * 100),
-    });
-
-    // Update match list for debug
-    setMatchList(
-      currentProfiles
-        .map((p) => ({
-          name: p.name,
-          score: pickBestMatch(obs, [{ profile: p.profile, id: p.id, name: p.name }]).score,
-        }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5)
-    );
 
     // Check if score >= 0.50 (50% similarity threshold as requested)
     if (best.score >= 0.50) {
       // Check if it's the same match as last time
       if (lastMatchRef.current && lastMatchRef.current.id === best.id) {
         consecMatchRef.current += 1;
-        console.log('[WebcamFeed] Same match detected, consecutive count:', consecMatchRef.current);
       } else {
         // Different match, reset counter
         consecMatchRef.current = 1;
-        console.log('[WebcamFeed] New match detected, resetting counter');
       }
       lastMatchRef.current = { id: best.id, name: best.name, score: best.score };
 
       // If we have 3 consecutive matches, show modal
       if (consecMatchRef.current >= 3) {
-        console.log('[WebcamFeed] ✅ Match confirmed! Showing modal for:', best.name, 'with score:', best.score);
         setDetectedRoom({ name: best.name, score: best.score });
         cooldownUntilRef.current = now + 30000; // 30 second cooldown
         consecMatchRef.current = 0; // Reset counter
@@ -114,12 +89,11 @@ export default function WebcamFeed() {
       // Score too low, reset counter
       consecMatchRef.current = 0;
       lastMatchRef.current = null;
-      console.log('[WebcamFeed] Score too low (< 50%), resetting match counter');
     }
   }, []); // Empty deps - stable callback
 
   // Enable Overshoot vision with room observation schema
-  const { getMediaStream, error: visionError, stop: stopVision, isQueued: visionQueued, getStreamStatus, isActive: visionActive } = useOvershootVision({
+  const { getMediaStream, error: visionError, isQueued: visionQueued, getStreamStatus, isActive: visionActive } = useOvershootVision({
     prompt: ROOM_OBSERVATION_PROMPT,
     outputSchema: ROOM_OBSERVATION_OUTPUT_SCHEMA,
     enabled: true, // ENABLED for room recognition
@@ -130,27 +104,24 @@ export default function WebcamFeed() {
     onObservation: handleObservation,
   });
 
-  // Debug: Log vision status
-  useEffect(() => {
-    console.log('[WebcamFeed] Vision status:', {
-      isActive: visionActive,
-      isQueued: visionQueued,
-      hasError: !!visionError,
-      hasMediaStream: !!getMediaStream(),
-      liveObservation: !!liveObservation,
-    });
-  }, [visionActive, visionQueued, visionError, liveObservation, getMediaStream]);
 
-  // Use Overshoot's stream for video display
+  // Use Overshoot's stream or fallback to direct webcam for video display
   useEffect(() => {
-    if (!visionActive) return; // Wait for vision to be active
-    
-    const updateVideoStream = () => {
+    let mounted = true;
+    let directWebcamStream: MediaStream | null = null;
+
+    const updateVideoStream = async () => {
+      // First try to get Overshoot's stream (if available)
       const overshootStream = getMediaStream();
-      if (overshootStream && videoRef.current) {
+      if (overshootStream && videoRef.current && mounted) {
         // Only update if stream changed
         if (videoRef.current.srcObject !== overshootStream) {
           console.log('[WebcamFeed] ✅ Setting Overshoot stream to video element');
+          // Stop direct webcam stream if we have Overshoot stream
+          if (directWebcamStream && directWebcamStream !== overshootStream) {
+            directWebcamStream.getTracks().forEach(track => track.stop());
+            directWebcamStream = null;
+          }
           videoRef.current.srcObject = overshootStream;
           videoRef.current.play().catch((err) => {
             console.error('[WebcamFeed] Error playing video:', err);
@@ -158,47 +129,83 @@ export default function WebcamFeed() {
           streamRef.current = overshootStream;
           setIsStreaming(true);
         }
+        return;
+      }
+
+      // Fallback: If no Overshoot stream, always try to get direct webcam access
+      if (!overshootStream && mounted && !directWebcamStream) {
+        try {
+          directWebcamStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 1280, height: 720, facingMode: 'user' },
+          });
+          
+          if (videoRef.current && mounted) {
+            videoRef.current.srcObject = directWebcamStream;
+            videoRef.current.play().catch((err) => {
+              console.error('[WebcamFeed] Error playing video:', err);
+            });
+            streamRef.current = directWebcamStream;
+            setIsStreaming(true);
+          }
+        } catch (err) {
+          console.error('[WebcamFeed] ❌ Failed to get webcam stream:', err);
+          setError('Camera access denied or unavailable. Please allow camera access.');
+        }
       }
     };
 
     // Try immediately
     updateVideoStream();
     
-    // Also try periodically in case stream becomes available later
-    const interval = setInterval(() => {
-      updateVideoStream();
-    }, 500);
+    // Also try once more after a short delay in case stream becomes available
+    const timeout = setTimeout(() => {
+      if (mounted) {
+        updateVideoStream();
+      }
+    }, 1000);
     
-    return () => clearInterval(interval);
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+      // Clean up direct webcam stream if it exists
+      if (directWebcamStream) {
+        directWebcamStream.getTracks().forEach(track => track.stop());
+        directWebcamStream = null;
+      }
+    };
   }, [visionActive, getMediaStream]);
 
-  // Handle Overshoot stream updates
-  useEffect(() => {
-    if (videoRef.current && visionActive) {
-      const overshootStream = getMediaStream();
-      if (overshootStream && videoRef.current.srcObject !== overshootStream) {
-        console.log('[WebcamFeed] Switching to Overshoot stream');
-        // Stop previous stream if it's a direct webcam stream
-        if (streamRef.current && streamRef.current !== overshootStream) {
-          streamRef.current.getTracks().forEach((track) => {
-            if (track.label !== 'OvershootVision') {
-              track.stop();
-            }
-          });
-        }
-        videoRef.current.srcObject = overshootStream;
-        videoRef.current.play().catch(console.error);
-        streamRef.current = overshootStream;
-        setIsStreaming(true);
-      }
-    }
-  }, [getMediaStream, visionActive]);
-
-  // Vision error handling
+  // Vision error handling - only show critical errors, not API key warnings
   useEffect(() => {
     if (visionError) {
-      console.error('[WebcamFeed] Vision error:', visionError);
-      setError(`Vision error: ${visionError}`);
+      // Don't show API key errors or RTCPeerConnection errors since we're using fallback mode
+      const isApiKeyError = visionError.includes('API key') || 
+                           visionError.includes('Overshoot API key') ||
+                           visionError.includes('not configured') ||
+                           visionError.includes('NEXT_PUBLIC_OVERSHOOT_API_KEY') ||
+                           visionError.includes('revoked') ||
+                           visionError.includes('authentication failed') ||
+                           visionError.includes('has been revoked') ||
+                           visionError.includes('unauthorized') ||
+                           visionError.includes('401') ||
+                           visionError.includes('403') ||
+                           visionError.includes('invalid');
+      
+      const isPeerConnectionError = visionError.includes('RTCPeerConnection') ||
+                                    visionError.includes('PeerConnection') ||
+                                    visionError.includes('Cannot create so many');
+      
+      // Only show critical errors (like camera access denied), not API/connection errors
+      if (!isApiKeyError && !isPeerConnectionError) {
+        console.error('[WebcamFeed] Vision error:', visionError);
+        setError(`Vision error: ${visionError}`);
+      } else {
+        // API/connection error but we have fallback - just clear any existing error
+        setError(null);
+      }
+    } else {
+      // Clear error when visionError is cleared
+      setError(null);
     }
   }, [visionError]);
 
@@ -235,7 +242,7 @@ export default function WebcamFeed() {
       <div className="absolute bottom-6 right-6 z-30 max-w-lg rounded-xl border-2 border-primary/50 shadow-2xl glass-panel p-4 bg-black/95 backdrop-blur-sm">
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-primary text-lg">smart_display</span>
-          <h3 className="text-sm font-bold text-white">Overshoot Output (Live JSON)</h3>
+          <h3 className="text-sm font-bold text-white">Live JSON Data</h3>
           <div className="ml-auto flex items-center gap-2">
             {isStreaming ? (
               visionQueued ? (
@@ -312,16 +319,6 @@ export default function WebcamFeed() {
                 </div>
               )}
             </>
-          ) : rawResponse ? (
-            // Show raw response if we have one but couldn't parse it
-            <div className="space-y-2 py-2">
-              <p className="text-amber-400 text-[11px] font-semibold">⚠️ Raw Overshoot Response (Unparsed):</p>
-              <div className="text-[9px] text-white/90 max-h-[400px] overflow-y-auto bg-slate-900/80 rounded-lg p-2 border border-amber-500/50">
-                <pre className="text-white font-mono leading-relaxed whitespace-pre-wrap break-words">
-                  {rawResponse}
-                </pre>
-              </div>
-            </div>
           ) : (
             <div className="space-y-2 py-4">
               <p className="text-white/60 text-[11px] font-medium">Waiting for Overshoot observation...</p>

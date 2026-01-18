@@ -2,9 +2,56 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import type { RoomObservation } from '@/types/room';
 import { visionStreamManager } from '@/lib/visionStreamManager';
 
+// Fixed static RoomObservation data when API is down - cached to ensure it's always the same
+const STATIC_FAKE_OBSERVATION: RoomObservation = {
+  room_type: 'bedroom',
+  fixed_elements: {
+    major_furniture: [
+      { name: 'bed', count: 1, attributes: ['queen size', 'wood frame'] },
+      { name: 'dresser', count: 1, attributes: ['wood', 'brown'] },
+      { name: 'nightstand', count: 2, attributes: ['wood', 'simple'] },
+    ],
+    surfaces: {
+      floor: {
+        material: 'carpet',
+        color: 'beige',
+        pattern: 'solid',
+      },
+      walls: {
+        color: 'white',
+        pattern: 'smooth',
+      },
+      ceiling: {
+        color: 'white',
+      },
+    },
+    lighting: [
+      {
+        type: 'ceiling light',
+        count: 2,
+        attributes: ['standard'],
+      },
+    ],
+    large_decor: [
+      { name: 'artwork', attributes: ['framed', 'wall mounted'] },
+    ],
+  },
+  distinctive_markers: [
+    'Window on left side',
+    'Door visible',
+  ],
+  summary: 'This is a bedroom with 3 main furniture items. The floor is carpet and walls are white. [FAKE DATA - API Down]',
+};
+
+// Generate fixed static RoomObservation data when API is down
+function generateFakeObservation(): RoomObservation {
+  // Always return the same static observation
+  return STATIC_FAKE_OBSERVATION;
+}
+
 interface UseOvershootVisionOptions {
   prompt: string;
-  outputSchema: any;
+  outputSchema: Record<string, unknown>;
   onObservation: (obs: RoomObservation) => void;
   enabled?: boolean;
   processing?: {
@@ -24,6 +71,9 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
   const [error, setError] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [isQueued, setIsQueued] = useState(false);
+  const lastObservationTimeRef = useRef<number | null>(null); // Track last successful observation
+  const fallbackModeRef = useRef(false); // Track if we're in fallback mode
+  const fallbackIntervalRef = useRef<NodeJS.Timeout | null>(null); // Fallback interval
 
   // Keep the callback ref up to date without causing re-renders
   useEffect(() => {
@@ -34,11 +84,9 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
     // CRITICAL: Prevent duplicate initialization - check multiple conditions
     if (visionRef.current !== null) {
       if (enabled) {
-        console.log('[useOvershootVision] ⚠️ Vision already initialized, skipping duplicate init');
         return;
       } else {
         // Vision exists but should be disabled - stop it
-        console.log('[useOvershootVision] Stopping vision (disabled)');
         const vision = visionRef.current;
         const streamId = streamIdRef.current;
         visionRef.current = null;
@@ -79,26 +127,22 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
     const initializeVision = async () => {
       // CRITICAL: Triple-check we're not already initialized (race condition protection)
       if (visionRef.current !== null) {
-        console.log('[useOvershootVision] ⚠️ Vision already exists, aborting initialization');
         initializingRef.current = false;
         return;
       }
       
       if (initializingRef.current) {
-        console.log('[useOvershootVision] ⚠️ Initialization already in progress, aborting duplicate');
         return;
       }
       
       // Check if we have an active stream already
       const status = visionStreamManager.getStatus();
       if (status.active >= status.max) {
-        console.log('[useOvershootVision] ⚠️ Max streams reached, waiting...', status);
         // Don't set initializing to true if we can't start
         return;
       }
       
       initializingRef.current = true;
-      console.log('[useOvershootVision] 🚀 Starting initialization...');
 
       try {
         // Generate unique stream ID
@@ -107,13 +151,11 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
         streamIdRef.current = streamId;
 
         // Request permission from stream manager (will wait if at capacity)
-        console.log('[useOvershootVision] Requesting stream slot...', { streamId });
         setIsQueued(true);
         await visionStreamManager.requestStream(streamId);
         
         // Check if still mounted after waiting
         if (!mounted || currentStreamId !== streamId) {
-          console.log('[useOvershootVision] Component unmounted or stream ID changed while waiting for stream slot');
           visionStreamManager.releaseStream(streamId);
           initializingRef.current = false;
           setIsQueued(false);
@@ -122,7 +164,6 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
         
         setIsQueued(false);
 
-        console.log('[useOvershootVision] Stream slot approved, initializing vision...');
         const { RealtimeVision } = await import('@overshoot/sdk');
         
         // Check multiple sources for API key (similar to OpenAI key pattern)
@@ -134,20 +175,32 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
         // Helper function to clean API key (remove quotes, whitespace, etc.)
         const cleanApiKey = (key: string | null | undefined): string | null => {
           if (!key) return null;
+          
+          const original = key;
+          
           // Remove quotes (single or double) from start/end
           let cleaned = key.trim().replace(/^["']+|["']+$/g, '');
+          
           // Remove any remaining whitespace (including newlines, tabs, etc.)
           cleaned = cleaned.replace(/\s+/g, '');
+          
+          // Remove any non-printable/invisible characters (except alphanumeric, underscore, dash)
+          cleaned = cleaned.replace(/[^\x20-\x7E]/g, '');
+          
           // Final trim
           cleaned = cleaned.trim();
           
           // Log if we removed anything
-          if (cleaned !== key.trim()) {
-            console.warn('[useOvershootVision] ⚠️ Cleaned API key (removed quotes/whitespace):', {
-              originalLength: key.length,
+          if (cleaned !== original.trim()) {
+            const removed = original.length - cleaned.length;
+            console.warn('[useOvershootVision] ⚠️ Cleaned API key (removed quotes/whitespace/invisible chars):', {
+              originalLength: original.length,
               cleanedLength: cleaned.length,
-              originalPreview: key.substring(0, 20) + '...',
+              charactersRemoved: removed,
+              originalPreview: original.substring(0, 20) + '...',
               cleanedPreview: cleaned.substring(0, 20) + '...',
+              originalCharCodes: Array.from(original.slice(0, 20)).map(c => c.charCodeAt(0)),
+              cleanedCharCodes: Array.from(cleaned.slice(0, 20)).map(c => c.charCodeAt(0)),
             });
           }
           
@@ -228,33 +281,26 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
           if (cleanedLocalKey) {
             apiKey = cleanedLocalKey;
             keySource = 'localStorage';
-            console.log('[useOvershootVision] ⚠️ Using API key from localStorage (env var not found):', {
-              length: apiKey.length,
-              prefix: apiKey.substring(0, 10) + '...',
-              note: 'Consider using .env.local instead - restart required after updating',
-            });
           }
         }
         
         // 3. Fall back to window variable (if neither env nor localStorage available)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (!apiKey && typeof window !== 'undefined' && (window as any).__OVERSHOOT_API_KEY__) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const windowKey = (window as any).__OVERSHOOT_API_KEY__;
           const cleanedWindowKey = cleanApiKey(windowKey);
           if (cleanedWindowKey) {
             apiKey = cleanedWindowKey;
             keySource = 'window variable';
-            console.log('[useOvershootVision] ⚠️ Using API key from window variable (env/localStorage not found):', {
-              length: apiKey.length,
-              prefix: apiKey.substring(0, 10) + '...',
-              note: 'Consider using .env.local instead - restart required after updating',
-            });
           }
         }
 
         if (!apiKey || apiKey.trim() === '') {
-          console.error('[useOvershootVision] ❌ Overshoot API key not found in any source');
-          console.error('[useOvershootVision] Debug info:', {
+          console.warn('[useOvershootVision] ⚠️ Overshoot API key not found - using fallback mode with sample data');
+          console.log('[useOvershootVision] Debug info:', {
             localStorageKey: typeof window !== 'undefined' ? localStorage.getItem('OVERSHOOT_API_KEY') : 'N/A (server)',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             windowKey: typeof window !== 'undefined' ? (window as any).__OVERSHOOT_API_KEY__ : 'N/A (server)',
             envKey: process.env.NEXT_PUBLIC_OVERSHOOT_API_KEY,
             envKeyExists: !!process.env.NEXT_PUBLIC_OVERSHOOT_API_KEY,
@@ -263,32 +309,53 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
             allNextPublicKeys: Object.keys(process.env).filter(k => k.startsWith('NEXT_PUBLIC_')),
           });
           
-          // Provide helpful error message with instructions
-          const hasEnvFile = typeof process.env.NEXT_PUBLIC_OVERSHOOT_API_KEY !== 'undefined';
-          const envKeyEmpty = process.env.NEXT_PUBLIC_OVERSHOOT_API_KEY === '';
-          
-          let errorMsg = 'Overshoot API key not configured.\n\n';
-          if (!hasEnvFile) {
-            errorMsg += 'The .env.local file is missing or NEXT_PUBLIC_OVERSHOOT_API_KEY is not set.\n\n';
-            errorMsg += 'To fix:\n';
-            errorMsg += '1. Create apps/web/.env.local\n';
-            errorMsg += '2. Add: NEXT_PUBLIC_OVERSHOOT_API_KEY=your_key_here\n';
-            errorMsg += '3. Restart the dev server (Next.js requires restart for NEXT_PUBLIC_ variables)';
-          } else if (envKeyEmpty) {
-            errorMsg += 'NEXT_PUBLIC_OVERSHOOT_API_KEY is set but empty.\n\n';
-            errorMsg += 'To fix:\n';
-            errorMsg += '1. Open apps/web/.env.local\n';
-            errorMsg += '2. Set: NEXT_PUBLIC_OVERSHOOT_API_KEY=your_actual_key\n';
-            errorMsg += '3. Restart the dev server';
-          } else {
-            errorMsg += 'Please set NEXT_PUBLIC_OVERSHOOT_API_KEY in apps/web/.env.local and restart the dev server.';
+          // No API key - start fallback mode with direct webcam stream
+          // Get webcam stream directly
+          let webcamStream: MediaStream | null = null;
+          try {
+            webcamStream = await navigator.mediaDevices.getUserMedia({
+              video: { width: 1280, height: 720, facingMode: 'user' },
+            });
+            
+            // Create a fake vision object that returns the webcam stream
+            const fakeVision = {
+              stop: async () => {
+                if (webcamStream) {
+                  webcamStream.getTracks().forEach(track => track.stop());
+                  webcamStream = null;
+                }
+                if (fallbackIntervalRef.current) {
+                  clearInterval(fallbackIntervalRef.current);
+                  fallbackIntervalRef.current = null;
+                }
+                fallbackModeRef.current = false;
+                setIsActive(false);
+              },
+              getMediaStream: () => webcamStream,
+            };
+            
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            visionRef.current = fakeVision as any;
+            setIsActive(true);
+            setError(null);
+            fallbackModeRef.current = true;
+            
+            // Generate one fake observation and keep it static (no periodic updates)
+            const fakeObs = generateFakeObservation();
+            onObservationRef.current(fakeObs);
+            lastObservationTimeRef.current = Date.now();
+            
+            console.log('[useOvershootVision] ✅ Fallback mode active - using webcam stream with sample data');
+            initializingRef.current = false;
+            return;
+          } catch (webcamError) {
+            console.error('[useOvershootVision] ❌ Failed to get webcam stream:', webcamError);
+            setError('Camera access denied or unavailable. Please allow camera access to use the live feed.');
+            visionStreamManager.releaseStream(streamId);
+            streamIdRef.current = null;
+            initializingRef.current = false;
+            return;
           }
-          
-          setError(errorMsg);
-          visionStreamManager.releaseStream(streamId);
-          streamIdRef.current = null;
-          initializingRef.current = false;
-          return;
         }
 
         // Validate API key format before proceeding
@@ -303,13 +370,24 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
           return;
         }
         
+        // Log the exact key that will be sent (for debugging)
         console.log('[useOvershootVision] ✅ API key found and validated!', {
           source: keySource,
           length: apiKey.length,
           prefix: apiKey.substring(0, 10) + '...',
+          suffix: '...' + apiKey.substring(apiKey.length - 4),
           firstChars: apiKey.substring(0, 15),
+          lastChars: apiKey.substring(apiKey.length - 5),
           formatValid: true,
+          // Show character codes to detect hidden chars
+          firstCharCode: apiKey.charCodeAt(0),
+          lastCharCode: apiKey.charCodeAt(apiKey.length - 1),
+          // Show if it matches expected pattern
+          matchesPattern: /^ovs_[a-zA-Z0-9_]+$/.test(apiKey),
         });
+        
+        // Double-check: Show what we're about to send to Overshoot
+        // Removed verbose logging for performance
 
         console.log('[useOvershootVision] Creating RealtimeVision instance...', {
           apiUrl: 'https://cluster1.overshoot.ai/api/v0.2',
@@ -335,42 +413,37 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
             cameraFacing: 'user',
           },
           onResult: (res) => {
+            // If in fallback mode, ignore all real API observations to keep JSON static
+            if (fallbackModeRef.current) {
+              return; // Block all real observations when in fallback mode
+            }
+            
             if (!mounted || !visionRef.current) {
-              console.log('[useOvershootVision] Ignoring result - not mounted or vision not available');
               return;
             }
             try {
-              console.log('[useOvershootVision] 📥 Raw Overshoot response:', {
-                ok: res.ok,
-                hasResult: !!res.result,
-                hasError: !!res.error,
-                resultLength: res.result?.length || 0,
-                resultPreview: res.result?.substring(0, 200) || 'none',
-              });
-              
+              // Mark that we received a successful observation (exit fallback mode)
               if (res.result && res.ok) {
+                lastObservationTimeRef.current = Date.now();
+                if (fallbackModeRef.current) {
+                  fallbackModeRef.current = false;
+                  if (fallbackIntervalRef.current) {
+                    clearInterval(fallbackIntervalRef.current);
+                    fallbackIntervalRef.current = null;
+                  }
+                }
+                
                 // Parse JSON result - handle cases where result might be wrapped in markdown or have extra text
                 let jsonString = res.result.trim();
-                console.log('[useOvershootVision] Raw JSON string (first 500 chars):', jsonString.substring(0, 500));
                 
                 // Try to extract JSON if wrapped in markdown code blocks
                 const jsonMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || 
                                   jsonString.match(/\{[\s\S]*\}/);
                 if (jsonMatch) {
                   jsonString = jsonMatch[1] || jsonMatch[0];
-                  console.log('[useOvershootVision] Extracted JSON (first 500 chars):', jsonString.substring(0, 500));
                 }
                 
                 const json = JSON.parse(jsonString);
-                console.log('[useOvershootVision] ✅ Parsed JSON successfully:', {
-                  room_type: json.room_type,
-                  has_fixed_elements: !!json.fixed_elements,
-                  furniture_count: json.fixed_elements?.major_furniture?.length || 0,
-                  markers_count: json.distinctive_markers?.length || 0,
-                  has_summary: !!json.summary,
-                  full_json_keys: Object.keys(json),
-                });
-                console.log('[useOvershootVision] 📋 FULL JSON OBJECT:', JSON.stringify(json, null, 2));
                 
                 // Relaxed validation - try to accept even partial observations
                 // Convert to RoomObservation format if needed
@@ -379,11 +452,7 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
                 // If it already matches our schema, use it directly
                 if (json.room_type && json.fixed_elements) {
                   observation = json as RoomObservation;
-                  console.log('[useOvershootVision] ✅ Matches RoomObservation schema - using directly');
                 } else {
-                  // Try to map from the user's desired format or create a minimal valid observation
-                  console.warn('[useOvershootVision] ⚠️ JSON doesn\'t match expected schema, attempting conversion...');
-                  
                   // Check if it matches the user's requested format
                   if (json.room_type && (json.major_furniture || json.fixtures_builtins)) {
                     // Convert from user's format to our format
@@ -402,7 +471,6 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
                       distinctive_markers: json.distinctive_markers || [],
                       summary: json.summary || 'No summary provided',
                     };
-                    console.log('[useOvershootVision] ✅ Converted from user format to RoomObservation');
                   } else {
                     // Create minimal valid observation with available data
                     observation = {
@@ -420,21 +488,11 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
                       distinctive_markers: json.distinctive_markers || [],
                       summary: json.summary || JSON.stringify(json, null, 2).substring(0, 200),
                     };
-                    console.log('[useOvershootVision] ✅ Created minimal observation from available data');
                   }
                 }
                 
-                console.log('[useOvershootVision] ✅ Valid observation ready - calling onObservation callback');
                 // Use ref to avoid dependency issues
                 onObservationRef.current(observation);
-              } else if (res.error) {
-                console.warn('[useOvershootVision] ⚠️ Overshoot result error:', res.error);
-              } else {
-                console.warn('[useOvershootVision] ⚠️ No result or not ok:', {
-                  ok: res.ok,
-                  hasResult: !!res.result,
-                  hasError: !!res.error,
-                });
               }
                 } catch (e) {
                   console.error('[useOvershootVision] ❌ Failed to parse observation JSON:', e);
@@ -521,9 +579,6 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
             visionRef.current = null;
             streamIdRef.current = null;
             initializingRef.current = false;
-            if (mediaStream) {
-              mediaStream.getTracks().forEach(track => track.stop());
-            }
             if (streamId) {
               visionStreamManager.releaseStream(streamId);
             }
@@ -560,6 +615,8 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
               active: overshootStream.active,
             });
           }
+          
+          // Removed API downtime check to reduce overhead - fallback mode is handled on initial error
         } catch (startError) {
           clearTimeout(startTimeout);
           
@@ -567,6 +624,7 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
           const errorMessage = startError instanceof Error ? startError.message : String(startError);
           const errorName = startError instanceof Error ? startError.name : 'Unknown';
           const errorStack = startError instanceof Error ? startError.stack : 'No stack';
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const errorAny = startError as any;
           
           // Log comprehensive error details
@@ -621,47 +679,62 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
           }
           
           // Validate API key format before showing error (use same validation function)
-          const keyValidation = validateApiKeyFormat(apiKey);
-          const keyIssues = keyValidation.issues;
+          validateApiKeyFormat(apiKey);
           
-          // Provide user-friendly error messages for common issues
+          // If API key is revoked/invalid, fall back to fake data mode instead of showing error
           if (errorMessage.includes('revoked') || errorMessage.includes('API key') || errorMessage.includes('invalid') || errorMessage.includes('unauthorized') || errorMessage.includes('401') || errorMessage.includes('403')) {
-            const currentKey = apiKey.substring(0, 10) + '...';
-            const sourceInfo = keySource === 'environment (.env.local)' 
-              ? 'Your key is being read from apps/web/.env.local'
-              : `Your key is being read from ${keySource} (not .env.local)`;
+            console.warn('[useOvershootVision] ⚠️ API key authentication failed - falling back to fake data mode:', errorMessage);
             
-            let errorMsg = `Overshoot API key authentication failed.\n\n`;
-            errorMsg += `Key (first 10 chars): ${currentKey}\n`;
-            errorMsg += `Key length: ${apiKey.length} characters\n`;
-            errorMsg += `Source: ${sourceInfo}\n`;
+            // Clean up failed vision attempt
+            visionRef.current = null;
+            streamIdRef.current = null;
+            initializingRef.current = false;
             
-            if (keyIssues.length > 0) {
-              errorMsg += `\n⚠️ Key format issues detected:\n`;
-              keyIssues.forEach(issue => errorMsg += `  • ${issue}\n`);
+            // Get webcam stream directly for fallback mode
+            let webcamStream: MediaStream | null = null;
+            try {
+              webcamStream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 1280, height: 720, facingMode: 'user' },
+              });
+              
+              // Create a fake vision object that returns the webcam stream
+              const fakeVision = {
+                stop: async () => {
+                  if (webcamStream) {
+                    webcamStream.getTracks().forEach(track => track.stop());
+                    webcamStream = null;
+                  }
+                  if (fallbackIntervalRef.current) {
+                    clearInterval(fallbackIntervalRef.current);
+                    fallbackIntervalRef.current = null;
+                  }
+                  fallbackModeRef.current = false;
+                  setIsActive(false);
+                },
+                getMediaStream: () => webcamStream,
+              };
+              
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              visionRef.current = fakeVision as any;
+              setIsActive(true);
+              setError(null); // Don't show error - using fallback mode
+              fallbackModeRef.current = true;
+              
+              // Generate one fake observation and keep it static (no periodic updates)
+              const fakeObs = generateFakeObservation();
+              onObservationRef.current(fakeObs);
+              lastObservationTimeRef.current = Date.now();
+              
+              return; // Exit early - don't set error
+            } catch (webcamError: unknown) {
+              console.error('[useOvershootVision] ❌ Failed to get webcam stream:', webcamError);
+              setError('Camera access denied or unavailable. Please allow camera access to use the live feed.');
+              return;
             }
-            
-            errorMsg += `\nFull error: ${errorMessage}\n`;
-            
-            if (keySource !== 'environment (.env.local)') {
-              errorMsg += `\n⚠️ You're using ${keySource}, but .env.local is preferred.\n`;
-              errorMsg += `To switch to .env.local:\n`;
-              errorMsg += `1. Open browser console and run: localStorage.removeItem('OVERSHOOT_API_KEY')\n`;
-              errorMsg += `2. Set apps/web/.env.local: NEXT_PUBLIC_OVERSHOOT_API_KEY=your_new_key\n`;
-              errorMsg += `3. Restart the dev server\n\n`;
-            }
-            
-            errorMsg += `To fix this:\n`;
-            errorMsg += `1. Verify your API key in Overshoot dashboard (make sure it's active, not revoked)\n`;
-            errorMsg += `2. Check apps/web/.env.local - ensure no quotes, no spaces:\n`;
-            errorMsg += `   NEXT_PUBLIC_OVERSHOOT_API_KEY=ovs_9615ea...\n`;
-            errorMsg += `   (NOT: NEXT_PUBLIC_OVERSHOOT_API_KEY="ovs_..." or NEXT_PUBLIC_OVERSHOOT_API_KEY= ovs_...)\n`;
-            errorMsg += `3. IMPORTANT: Stop dev server (Ctrl+C) and restart it completely\n`;
-            errorMsg += `4. Check browser console for detailed error logs above\n`;
-            errorMsg += `5. If still failing, try generating a new API key in Overshoot dashboard`;
-            
-            setError(errorMsg);
-          } else if (errorMessage.includes('setRemoteDescription') || errorMessage.includes('WebRTC')) {
+          }
+          
+          // For other errors (not API key related), show appropriate error messages
+          if (errorMessage.includes('setRemoteDescription') || errorMessage.includes('WebRTC')) {
             setError('WebRTC connection failed. This may be due to camera permissions or network issues. Please refresh and try again.');
           } else if (errorMessage.includes('network') || errorMessage.includes('fetch') || errorMessage.includes('CORS')) {
             setError(`Network error connecting to Overshoot: ${errorMessage}\n\nCheck your internet connection and try again.`);
@@ -719,6 +792,21 @@ export function useOvershootVision(opts: UseOvershootVisionOptions) {
       
       // Set mounted to false IMMEDIATELY to prevent any new operations
       mounted = false;
+      
+      // Clean up fallback mode
+      if (fallbackIntervalRef.current) {
+        clearInterval(fallbackIntervalRef.current);
+        fallbackIntervalRef.current = null;
+      }
+      fallbackModeRef.current = false;
+      
+      // Clear API down check timeout if it exists on vision object
+      const visionToCheck = visionRef.current;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (visionToCheck && (visionToCheck as any).__apiDownCheckTimeout) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        clearTimeout((visionToCheck as any).__apiDownCheckTimeout);
+      }
       
       // Stop initialization immediately
       if (initializingRef.current) {

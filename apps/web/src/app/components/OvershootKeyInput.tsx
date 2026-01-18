@@ -24,6 +24,7 @@ export default function OvershootKeyInput({ onSave, initialKey = '' }: Overshoot
     
     // Save to window variable (for current session)
     if (typeof window !== 'undefined') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).__OVERSHOOT_API_KEY__ = apiKey.trim();
     }
     

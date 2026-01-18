@@ -92,7 +92,7 @@ export default function VideoUploadProcessor({ onComplete, onCancel }: VideoUplo
     });
   }, []);
 
-  const getOpenAIKey = (): string => {
+  const getOpenAIKey = useCallback((): string => {
     // Check localStorage first (most reliable)
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('OPENAI_API_KEY');
@@ -101,7 +101,9 @@ export default function VideoUploadProcessor({ onComplete, onCancel }: VideoUplo
       }
     }
     // Check window variable (for current session)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (typeof window !== 'undefined' && (window as any).__OPENAI_API_KEY__) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const windowKey = (window as any).__OPENAI_API_KEY__;
       if (windowKey && windowKey.trim()) {
         return windowKey.trim();
@@ -112,7 +114,7 @@ export default function VideoUploadProcessor({ onComplete, onCancel }: VideoUplo
       return openAIKey.trim();
     }
     return '';
-  };
+  }, [openAIKey]);
 
   const processImageWithOpenAI = useCallback(async (
     canvas: HTMLCanvasElement
@@ -142,7 +144,7 @@ export default function VideoUploadProcessor({ onComplete, onCancel }: VideoUplo
     });
 
     return observation;
-  }, []);
+  }, [getOpenAIKey]);
 
   const processImage = async () => {
     console.log('[VideoUploadProcessor] ========== processImage() called ==========');
@@ -347,6 +349,7 @@ export default function VideoUploadProcessor({ onComplete, onCancel }: VideoUplo
         {imageFile && imageUrl && !isProcessing && (
           <div className="space-y-4">
             <div className="relative rounded-xl overflow-hidden bg-slate-900">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 ref={imageRef}
                 src={imageUrl}

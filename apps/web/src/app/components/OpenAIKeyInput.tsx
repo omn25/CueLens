@@ -25,6 +25,7 @@ export default function OpenAIKeyInput({ onSave, initialKey = '' }: OpenAIKeyInp
     // Save to env variable (for current session)
     // Note: This won't persist across restarts, but will work for current session
     if (typeof window !== 'undefined') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).__OPENAI_API_KEY__ = apiKey.trim();
     }
     
